@@ -1,0 +1,26 @@
+[
+  {
+    "privateKey": {
+      "algorithm": "ECDSA",
+      "withCompression": false
+    },
+    "publicKey": {
+      "algorithm": "ECDSA",
+      "withCompression": false
+    },
+    "address": "11JwBuFtRpPBiupC2s62nFWpcTPHwr7QbZJ",
+    "balance": -10.0
+  },
+  {
+    "privateKey": {
+      "algorithm": "ECDSA",
+      "withCompression": false
+    },
+    "publicKey": {
+      "algorithm": "ECDSA",
+      "withCompression": false
+    },
+    "address": "115Mfo6w6B3vVoZ9SY2gzuEfmyDKPY6xwFz",
+    "balance": 10.0
+  }
+]
