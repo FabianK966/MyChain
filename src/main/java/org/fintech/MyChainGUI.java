@@ -54,7 +54,7 @@ public class MyChainGUI extends Application {
 
         blockchain = BlockchainPersistence.loadBlockchain("MyChain", 1);
         // 🛑 KORREKTUR: Preis laden oder Standardwert (0.1) verwenden
-        double initialPrice = PriceSimulator.loadPrice(0.1);
+        double initialPrice = PriceSimulator.loadPrice(1.0);
         this.priceSimulator = new PriceSimulator(initialPrice); // PriceSimulator mit geladenem Preis initialisieren
 
         networkSimulator = new NetworkSimulator(blockchain, WalletManager, priceSimulator);
@@ -72,7 +72,7 @@ public class MyChainGUI extends Application {
         BorderPane root = new BorderPane();
         root.setPadding(new Insets(15));
 
-        currentPriceLabel = new Label("SC Preis: 0.10 USD");
+        currentPriceLabel = new Label("SC Preis: 1.00 USD");
         currentPriceLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 1.2em; -fx-padding: 0 0 10 0;");
 
         HBox topControls = new HBox(10);

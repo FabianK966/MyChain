@@ -19,7 +19,7 @@ public class NetworkSimulator {
     private static final long MIN_WALLET_CREATION_PERIOD = 50;
     private long currentWalletCreationPeriod = 3000;
     private final double periodMultiplier = 0.9;
-    private final int periodThreshold = 25;
+    private final int periodThreshold = 50;
 
     // 🌟 NEUE FELDER FÜR DIE HANDELS-GESCHWINDIGKEITSANALYSE
     private static final long INITIAL_MIN_DELAY = 900;
@@ -132,8 +132,8 @@ public class NetworkSimulator {
                 // Definition der Konstanten (Basiswerte)
                 long maxDelayBase = 1000;
                 long minDelayBase = 600;
-                long minDelayFast = 30;
-                int reductionFactor = 2;
+                long minDelayFast = 40;
+                int reductionFactor = 1;
 
                 // Berechnung der Reduktion, die auf beide Delays angewandt wird
                 long delayReduction = (long) userWalletCount * reductionFactor;
