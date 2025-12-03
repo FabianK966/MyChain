@@ -16,8 +16,8 @@ public class Blockchain {
             Wallet supplyWallet = WalletManager.SUPPLY_WALLET;
 
             List<Transaction> genesisTxs = new ArrayList<>();
-            // 🌟 KORRIGIERT: 10.000.000 SC initiales Supply an die SUPPLY_WALLET
-            genesisTxs.add(new Transaction("system", supplyWallet.getAddress(), 10000000000.0, "Genesis Supply – Ursprung der " + name + " Coins!"));
+            // 🌟 KORRIGIERT: 1.000.000.000.000.000 SC initiales Supply an die SUPPLY_WALLET
+            genesisTxs.add(new Transaction("system", supplyWallet.getAddress(), 1000000000000000.0, "Genesis Supply – Ursprung der " + name + " Coins!"));
 
             Block genesis = new Block(genesisTxs, "0");
             genesis.mineBlock(difficulty);

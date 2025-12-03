@@ -16,10 +16,10 @@ public class NetworkSimulator {
     private Timer transactionTimer;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Runnable onUpdateCallback;
-    private static final long MIN_WALLET_CREATION_PERIOD = 10;
+    private static final long MIN_WALLET_CREATION_PERIOD = 50;
     private long currentWalletCreationPeriod = 3000;
     private final double periodMultiplier = 0.9;
-    private final int periodThreshold = 20;
+    private final int periodThreshold = 25;
 
     // 🌟 NEUE FELDER FÜR DIE HANDELS-GESCHWINDIGKEITSANALYSE
     private static final long INITIAL_MIN_DELAY = 900;
@@ -130,10 +130,10 @@ public class NetworkSimulator {
                 int userWalletCount = allWallets.size() - 1;
 
                 // Definition der Konstanten (Basiswerte)
-                long maxDelayBase = 1500;
-                long minDelayBase = 900;
-                long minDelayFast = 300;
-                int reductionFactor = 3;
+                long maxDelayBase = 1000;
+                long minDelayBase = 600;
+                long minDelayFast = 30;
+                int reductionFactor = 2;
 
                 // Berechnung der Reduktion, die auf beide Delays angewandt wird
                 long delayReduction = (long) userWalletCount * reductionFactor;
@@ -192,7 +192,7 @@ public class NetworkSimulator {
         // 3. Berechnung des Handelsbetrags (garantiert 33% bis 50%)
         double currentPrice = priceSimulator.getCurrentPrice();
 
-        final double MIN_PERCENTAGE = 0.33; // 33%
+        final double MIN_PERCENTAGE = 0.50; // 33%
         final double MAX_PERCENTAGE = 0.98; // 50%
 
         // 🛑 NEU: Zufälliger Prozentsatz zwischen MIN_PERCENTAGE und MAX_PERCENTAGE

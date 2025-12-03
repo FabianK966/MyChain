@@ -12,7 +12,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 public class WalletManager {
     private static final String WALLETS_FILE = "wallets.json";
-    private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson gson = new GsonBuilder().create();
 
     // Dedizierte Wallet für den Coin-Supply
     public static final Wallet SUPPLY_WALLET = new Wallet("admin");
