@@ -25,8 +25,8 @@ public class NetworkSimulator {
     // Konfiguration der Wallet-Generierung
     private static final long MIN_WALLET_CREATION_PERIOD = 100;
     // 🛑 DELAY RESET: Muss beim Start neu gesetzt werden
-    private long currentWalletCreationPeriod = 2000;
-    private final double periodMultiplier = 0.95;
+    private long currentWalletCreationPeriod = 5000;
+    private final double periodMultiplier = 0.97;
     private final int periodThreshold = 50;
 
     // Konfiguration der Marktstimmung
@@ -83,7 +83,7 @@ public class NetworkSimulator {
 
         // HANDELS-SIMULATION STARTEN
         transactionTimer = new Timer(true);
-        scheduleNextTrade(5);
+        scheduleNextTrade(50);
 
         // GUI-AKTUALISIERUNGS-TIMER STARTEN (10 Sekunden)
         updateTimer = new Timer(true);
@@ -215,7 +215,7 @@ public class NetworkSimulator {
                 int userWalletCount = WalletManager.getMaxWalletCountForSimulation();
 
                 long maxDelayBase = 900;
-                long minDelayBase = 300;
+                long minDelayBase = 600;
                 long minDelayFast = 10;
                 int reductionFactor = 1;
 
@@ -303,7 +303,7 @@ public class NetworkSimulator {
         double currentPrice = priceSimulator.getCurrentPrice();
 
         final double MIN_PERCENTAGE = 0.33;
-        final double MAX_PERCENTAGE = 0.95;
+        final double MAX_PERCENTAGE = 0.60;
 
         double actualTradePercentage = MIN_PERCENTAGE + (MAX_PERCENTAGE - MIN_PERCENTAGE) * r.nextDouble();
 
