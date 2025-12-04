@@ -6,10 +6,6 @@ public class PriceSimulator {
 
     private double currentPrice;
     private final Random random = new Random();
-
-    // Parameter zur Steuerung der Marktvolatilität
-    private static final double PRICE_IMPACT_FACTOR = 0.00001; // Wie stark 100 SC den Preis beeinflussen
-    private static final double BASE_VOLATILITY = 0.00001;     // Basis-Zufallsschwankung
     private static final String PRICE_FILE = "price.txt";
 
     public PriceSimulator(double initialPrice) {
@@ -44,24 +40,45 @@ public class PriceSimulator {
      * @param amount Die gehandelte SC-Menge.
      * @param isBuy True, wenn SC gekauft wird (erhöht Nachfrage/Preis); False, wenn SC verkauft wird (erhöht Angebot/senkt Preis).
      */
-    public void executeTrade(double amount, boolean isBuy) {
-        // Berechnet den Preis-Impact basierend auf der gehandelten Menge
-        double priceImpact = (amount / 100) * PRICE_IMPACT_FACTOR;
+    public void executeTrade(double amountSC, boolean isBuy) {
+        if (amountSC <= 0) return;
 
-        // Preis basierend auf Kauf/Verkauf anpassen
-        if (isBuy) {
-            currentPrice *= (1 + priceImpact); // Kauf erhöht den Preis
-        } else {
-            currentPrice *= (1 - priceImpact); // Verkauf senkt den Preis
+        // Standard-Parameter (können in den Feldern definiert sein)
+        final double VOLATILITY_FACTOR = 0.0000001; // Beispielwert
+        final double MAX_PRICE_CHANGE_PERCENT = 0.70;  // 🛑 50% Limit
+
+        // Berechnen der Preisänderung basierend auf Handelsvolumen
+        double priceChange = amountSC * VOLATILITY_FACTOR * getCurrentPrice();
+
+        if (!isBuy) {
+            priceChange *= -1; // Bei Verkauf wird der Preis gesenkt
         }
 
-        // Basis-Volatilität hinzufügen (kleiner Random Walk)
-        double volatilityChange = random.nextDouble() * 2 * BASE_VOLATILITY - BASE_VOLATILITY;
-        currentPrice *= (1 + volatilityChange);
+        // ----------------------------------------------------
+        // 🛑 NEUE KONTROLL-LOGIK (50%-Limit)
+        // ----------------------------------------------------
+        double potentialNewPrice = currentPrice + priceChange;
+
+        // Maximale erlaubte Preisänderung (absolut)
+        double maxAllowedDrop = currentPrice * MAX_PRICE_CHANGE_PERCENT;
+
+        // Prüfen, ob die Preisänderung das 50%-Limit überschreitet
+        if (!isBuy && priceChange < 0 && Math.abs(priceChange) > maxAllowedDrop) {
+
+            System.out.printf("🚨 TRADE ABGELEHNT: Verkauf von %.3f SC würde Preis um %.2f%% droppen (Limit 50.00%%).%n",
+                    amountSC, (Math.abs(priceChange) / currentPrice) * 100);
+
+            // Den Trade blockieren, indem die Methode beendet wird, ohne den Preis zu ändern.
+            return;
+        }
+        // ----------------------------------------------------
+
+        // Preis aktualisieren (nur wenn der Trade nicht abgelehnt wurde)
+        currentPrice = potentialNewPrice;
 
         // Sicherstellen, dass der Preis nicht negativ oder extrem niedrig wird
-        if (currentPrice < 0.01) {
-            currentPrice = 0.01;
+        if (currentPrice < 0.3) {
+            currentPrice = 0.3;
         }
     }
 

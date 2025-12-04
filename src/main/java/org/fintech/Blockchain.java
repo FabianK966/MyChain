@@ -16,8 +16,8 @@ public class Blockchain {
             Wallet supplyWallet = WalletManager.SUPPLY_WALLET;
 
             List<Transaction> genesisTxs = new ArrayList<>();
-            // 🌟 KORRIGIERT: 1.000.000.000.000.000.000 SC initiales Supply an die SUPPLY_WALLET
-            genesisTxs.add(new Transaction("system", supplyWallet.getAddress(), 1000000000000000000.0, "Genesis Supply – Ursprung der " + name + " Coins!"));
+            // 🌟 KORRIGIERT: 10.000.000.000.000 SC initiales Supply an die SUPPLY_WALLET
+            genesisTxs.add(new Transaction("system", supplyWallet.getAddress(), 10000000000000.0, "Genesis Supply – Ursprung der " + name + " Coins!"));
 
             Block genesis = new Block(genesisTxs, "0");
             genesis.mineBlock(difficulty);
@@ -37,6 +37,19 @@ public class Blockchain {
         Block newBlock = new Block(transactions, last.getHash());
         newBlock.mineBlock(difficulty);
         chain.add(newBlock);
+    }
+
+    public void resetChain() {
+        if (this.chain.size() > 1) {
+            // 🛑 WICHTIG: Entfernt alle Blöcke ab Index 1 (behält den Genesis Block bei Index 0)
+            this.chain.subList(1, this.chain.size()).clear();
+            System.out.println("--- Kette zurückgesetzt. Alle Blöcke außer Genesis (#0) wurden gelöscht. ---");
+        } else if (this.chain.size() == 1) {
+            System.out.println("--- Kette enthält nur den Genesis Block. Keine Aktion erforderlich. ---");
+        } else {
+            // Dieser Fall sollte bei korrekt geladener Blockchain nicht eintreten.
+            System.err.println("--- Kette ist leer! Kritischer Fehler beim Zurücksetzen. ---");
+        }
     }
 
     public boolean isChainValid() {

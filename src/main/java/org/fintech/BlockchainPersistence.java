@@ -23,7 +23,6 @@ public class BlockchainPersistence {
 
         try (Writer writer = new FileWriter(FILE_NAME)) {
             writer.write(json);
-            System.out.println("Blockchain erfolgreich gespeichert in " + FILE_NAME);
         } catch (IOException e) {
             System.err.println("Fehler beim Speichern: " + e.getMessage());
         }
@@ -45,8 +44,6 @@ public class BlockchainPersistence {
                 System.out.println("Datei leer → neue Chain");
                 return new Blockchain(name, difficulty);
             }
-
-            System.out.println("Blockchain geladen mit " + loadedBlocks.size() + " Blöcken.");
             return new Blockchain(loadedBlocks, name, difficulty);
 
         } catch (Exception e) {

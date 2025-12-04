@@ -48,7 +48,6 @@ public class Block {
             nonce++;
             hash = calculateHash();
         }
-        System.out.println("Block gemined! Nonce: " + nonce + " → Hash: " + hash);
     }
 
     // GETTER

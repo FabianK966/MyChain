@@ -12,18 +12,37 @@ public class NetworkSimulator {
     private final Blockchain blockchain;
     private final WalletManager walletManager;
     private final PriceSimulator priceSimulator;
+
     private Timer walletTimer;
     private Timer transactionTimer;
+    private Timer updateTimer;
+    private Timer priceUpdateTimer;
+
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Runnable onUpdateCallback;
-    private static final long MIN_WALLET_CREATION_PERIOD = 50;
-    private long currentWalletCreationPeriod = 3000;
-    private final double periodMultiplier = 0.9;
+    private Runnable onPriceUpdateCallback;
+
+    // Konfiguration der Wallet-Generierung
+    private static final long MIN_WALLET_CREATION_PERIOD = 100;
+    // 🛑 DELAY RESET: Muss beim Start neu gesetzt werden
+    private long currentWalletCreationPeriod = 2000;
+    private final double periodMultiplier = 0.95;
     private final int periodThreshold = 50;
 
-    // 🌟 NEUE FELDER FÜR DIE HANDELS-GESCHWINDIGKEITSANALYSE
+    // Konfiguration der Marktstimmung
+    private double buyBias = 0.50;
+
+    // 🌟 KONSTANTEN: Dateigröße und Pfade
+    private static final long MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024; // 2 MB Limit
+    private static final String BLOCKCHAIN_FILE_PATH = "blockchain.json"; // 🛑 KORRIGIERTER PFAD
+
+    // Konfiguration der GUI-Aktualisierung
+    private static final long GUI_UPDATE_PERIOD = 10000; // 10 Sekunden für Chart/Listen
+
+    // HANDELS-GESCHWINDIGKEITSANALYSE
     private static final long INITIAL_MIN_DELAY = 900;
-    private static long currentTradeMinDelay = INITIAL_MIN_DELAY; // Speichert die zuletzt berechnete minimale Handelsverzögerung
+    // 🛑 DELAY RESET: Muss beim Start neu gesetzt werden
+    private static long currentTradeMinDelay = INITIAL_MIN_DELAY;
 
     public NetworkSimulator(Blockchain blockchain, WalletManager walletManager, PriceSimulator priceSimulator) {
         this.blockchain = blockchain;
@@ -31,256 +50,92 @@ public class NetworkSimulator {
         this.priceSimulator = priceSimulator;
     }
 
+    // --- ÖFFENTLICHE API ---
+
     public void setOnUpdate(Runnable callback) {
         this.onUpdateCallback = callback;
     }
 
-    public void triggerUpdate() {
-        if (onUpdateCallback != null) {
-            Platform.runLater(onUpdateCallback);
-        }
+    public void setOnPriceUpdate(Runnable callback) {
+        this.onPriceUpdateCallback = callback;
+    }
+
+    public boolean isRunning() {
+        return running.get();
+    }
+
+    public void setBuyBias(double bias) {
+        this.buyBias = Math.max(0.0, Math.min(1.0, bias));
     }
 
     public void start() {
         if (running.getAndSet(true)) return;
 
-        // Beim Start den initialen Wert setzen, falls er durch einen Neustart beeinflusst wurde
+        // 🛑 NEUSTART-LOGIK: Setzt die Delays auf die Startwerte zurück
         currentTradeMinDelay = INITIAL_MIN_DELAY;
+        this.currentWalletCreationPeriod = 1000;
+        // -----------------------------------------------------------------
 
         System.out.println("=== NETZWERK-SIMULATION GESTARTET ===");
 
-        // DYNAMISCHE WALLET-ERSTELLUNG STARTEN
-        walletTimer = new Timer(true);
-        System.out.printf("→ Neue Wallet alle %.2fs (dynamisch, verlangsamt alle %d Wallets um %.0f%%)%n",
-                currentWalletCreationPeriod / 1000.0, periodThreshold, (periodMultiplier * 100 - 100));
-        scheduleNextWalletCreation(currentWalletCreationPeriod);
+        // WALLET-ERSTELLUNG STARTEN
+        startWalletGeneration();
 
+        // HANDELS-SIMULATION STARTEN
         transactionTimer = new Timer(true);
-
-        // Timer 2: Handels-Simulation
-        System.out.println("→ Kauf/Verkauf-Simulationen (Frequenz passt sich der Anzahl der Wallets an)");
         scheduleNextTrade(5);
-    }
 
-    // 🌟 NEUE HILFSMETHODE: Zur Verwaltung der minimalen Handelsverzögerung
-    // Muss synchronisiert sein, da sie von zwei Threads (oder mehr) gleichzeitig gelesen/geschrieben werden könnte.
-    private static synchronized long getAndSetCurrentTradeMinDelay(int userCount, long minDelayBase, int reductionFactor, long minDelayFast) {
-        long oldDelay = currentTradeMinDelay;
-
-        // Berechnung wie in scheduleNextTrade
-        long delayReduction = (long) userCount * reductionFactor;
-        long newDelay = Math.max(minDelayFast, minDelayBase - delayReduction);
-
-        currentTradeMinDelay = newDelay;
-        return oldDelay;
-    }
-
-
-    // 🌟 NEUE METHODE: Dynamische Planung der nächsten Wallet-Erstellung
-    private void scheduleNextWalletCreation(long delay) {
-        if (!running.get()) return;
-
-        walletTimer.schedule(new TimerTask() {
+        // GUI-AKTUALISIERUNGS-TIMER STARTEN (10 Sekunden)
+        updateTimer = new Timer(true);
+        updateTimer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
-                if (!running.get()) return;
-
-                Platform.runLater(() -> {
-                    // 1. Wallet erstellen (erhöht die Wallet-Anzahl)
-                    Wallet newWallet = WalletManager.createWallet();
-
-                    // 2. 🌟 NEUE LOGIK: Verzögerung anpassen (Beschleunigung), wenn Schwelle erreicht
-                    int userWalletCount = WalletManager.getWallets().size() - 1;
-
-                    if (userWalletCount > 0 && userWalletCount % periodThreshold == 0) {
-                        // Verzögerung reduzieren (Beschleunigen)
-                        long newPeriod = (long) (currentWalletCreationPeriod * periodMultiplier);
-
-                        // Mindestwert prüfen, damit es nicht zu schnell wird
-                        currentWalletCreationPeriod = Math.max(newPeriod, MIN_WALLET_CREATION_PERIOD);
-
-                        System.out.printf("--- WALLET-SCHWELLE ERREICHT (%d Wallets)! Neue Wallet-Erstellungsdauer: %.0fms (%.2fs) ---%n",
-                                userWalletCount, (double)currentWalletCreationPeriod, currentWalletCreationPeriod / 1000.0);
-                    }
-
-                    triggerUpdate();
-                    System.out.println("NEUE WALLET erstellt: " + newWallet.getAddress().substring(0, 16) + "...");
-
-                    // 3. Nächste Erstellung mit der (möglicherweise) neuen Verzögerung planen
-                    scheduleNextWalletCreation(currentWalletCreationPeriod);
-                });
+                triggerUpdate();
             }
-        }, delay);
-    }
+        }, 0, GUI_UPDATE_PERIOD);
 
-
-    private void scheduleNextTrade(long delay) {
-        if (!running.get()) return;
-
-        transactionTimer.schedule(new TimerTask() {
+        // PREIS-UPDATE-TIMER STARTEN (1 Sekunde)
+        priceUpdateTimer = new Timer(true);
+        priceUpdateTimer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
-                if (!running.get()) return;
-
-                // 1. Handelslogik ausführen (läuft auf dem TimerTask-Thread)
-                simulateTrade();
-
-                // 2. Dynamische Verzögerung basierend auf Wallet-Anzahl
-                List<Wallet> allWallets = WalletManager.getWallets();
-                int userWalletCount = allWallets.size() - 1;
-
-                // Definition der Konstanten (Basiswerte)
-                long maxDelayBase = 1000;
-                long minDelayBase = 600;
-                long minDelayFast = 40;
-                int reductionFactor = 1;
-
-                // Berechnung der Reduktion, die auf beide Delays angewandt wird
-                long delayReduction = (long) userWalletCount * reductionFactor;
-
-                // -------------------------------------------------------------------
-                // NEUE BERECHNUNG DER DYNAMISCHEN MINIMAL- UND MAXIMALWERTE
-                // -------------------------------------------------------------------
-
-                // Die minimale tatsächliche Verzögerung kann nicht unter minDelayFast fallen
-                long actualMinDelay = Math.max(minDelayFast, minDelayBase - delayReduction);
-
-                // Die maximale tatsächliche Verzögerung wird um dieselbe Reduktion gekürzt.
-                // Der neue maximale Delay sollte nicht unter dem neuen minimalen Delay liegen!
-                long actualMaxDelay = Math.max(actualMinDelay, maxDelayBase - delayReduction);
-
-                // -------------------------------------------------------------------
-
-                // 3. Statusprüfung und Ausgabe (unter Verwendung der Hilfsmethode)
-                long oldActualMinDelay = getAndSetCurrentTradeMinDelay(userWalletCount, minDelayBase, reductionFactor, minDelayFast);
-
-                if (actualMinDelay != oldActualMinDelay) {
-                    System.out.printf("--- HANDELS-SCHWELLE GEÄNDERT (%d Wallets)! Neue Handelsspanne: %.0fms - %.0fms ---%n",
-                            userWalletCount, (double)actualMinDelay, (double)actualMaxDelay);
-                }
-
-                // 4. Nächste Verzögerung wählen (zufällig zwischen actualMinDelay und actualMaxDelay)
-                long range = actualMaxDelay - actualMinDelay + 1;
-                long nextDelay = actualMinDelay + new Random().nextInt((int) range);
-
-                // 5. Nächsten Trade mit zufälliger Verzögerung planen
-                scheduleNextTrade(nextDelay);
-                System.out.println(nextDelay);
+                triggerPriceUpdate();
             }
-        }, delay);
+        }, 0, 1000);
     }
 
-    private void simulateTrade() {
-        // 1. Initialisierung und Vorbereitung
-        List<Wallet> allWallets = WalletManager.getWallets();
-        Wallet supplyWallet = WalletManager.SUPPLY_WALLET;
-        Random r = new Random();
+    public void stop() {
+        running.set(false);
 
-        List<Wallet> userWallets = allWallets.stream()
-                .filter(w -> !w.getAddress().equals(supplyWallet.getAddress()))
-                .toList();
+        stopWalletGeneration();
 
-        if (userWallets.isEmpty()) return;
-
-        // 2. Auswahl der Wallet und Handelsrichtung
-        Wallet tradingWallet = userWallets.get(r.nextInt(userWallets.size()));
-
-        // Bedingung: Wenn die Wallet (fast) keine SC hat, MUSS sie kaufen.
-        boolean mustBuy = tradingWallet.getBalance() < 0.01;
-        boolean isBuy = mustBuy || r.nextBoolean();
-
-        // 3. Berechnung des Handelsbetrags (garantiert 33% bis 50%)
-        double currentPrice = priceSimulator.getCurrentPrice();
-
-        final double MIN_PERCENTAGE = 0.50; // 33%
-        final double MAX_PERCENTAGE = 0.98; // 50%
-
-        // 🛑 NEU: Zufälliger Prozentsatz zwischen MIN_PERCENTAGE und MAX_PERCENTAGE
-        // Dies ist der garantierte Prozentsatz der Balance, der gehandelt wird.
-        double actualTradePercentage = MIN_PERCENTAGE + (MAX_PERCENTAGE - MIN_PERCENTAGE) * r.nextDouble();
-
-        double usdToTrade;
-
-        if (isBuy) {
-            // Kauf: Berechne USD-Betrag als Prozentsatz der USD-Balance
-            usdToTrade = tradingWallet.getUsdBalance() * actualTradePercentage;
-        } else {
-            // Verkauf: Berechne SC-Betrag als Prozentsatz der SC-Balance und konvertiere in USD
-            // tradingWallet.getBalance() * actualTradePercentage (SC-Menge) * currentPrice (USD-Wert)
-            usdToTrade = (tradingWallet.getBalance() * actualTradePercentage) * currentPrice;
+        if (transactionTimer != null) {
+            transactionTimer.cancel();
+            transactionTimer = null;
         }
 
-        // 🛑 ABER: Wir müssen verhindern, dass Wallets mit sehr kleinen Balancen fast nichts handeln.
-        usdToTrade = Math.max(1.0, usdToTrade); // Mindestbetrag von 1.0 USD beibehalten (Schutz vor Kleinstbeträgen)
-
-        // Maximaler Limit-Schutz
-        usdToTrade = Math.min(usdToTrade, 100000000.0); // Limit auf 1 Million USD pro Trade
-
-        // Konvertierung in SC-Coins
-        double tradeAmountSC = usdToTrade / currentPrice;
-
-        // Runden des SC-Betrags auf 3 Dezimalstellen
-        tradeAmountSC = Math.round(tradeAmountSC * 1000.0) / 1000.0;
-
-        double usdValue = tradeAmountSC * currentPrice; // Der tatsächliche USD-Wert des SC-Betrags
-
-        if (usdValue < 1.0 || tradeAmountSC < 0.001) {
-            // Verhindern von extrem kleinen Transaktionen (auch nach der Berechnung)
-            return;
+        if (updateTimer != null) {
+            updateTimer.cancel();
+            updateTimer = null;
         }
 
-        List<Transaction> txs = new ArrayList<>();
-
-        // 4. Ausführung der Transaktion
-        if (isBuy) {
-            // SC KAUFEN (USD -> SC, von Supply)
-
-            // Finaler Check: Hat die Wallet USD und die Supply Wallet SC?
-            if (tradingWallet.getUsdBalance() < usdValue || supplyWallet.getBalance() < tradeAmountSC + 0.01) {
-                return;
-            }
-
-            try {
-                tradingWallet.debitUsd(usdValue);
-                txs.add(supplyWallet.createTransaction(tradingWallet.getAddress(), tradeAmountSC, "SIMULIERT: SC Kauf von Supply"));
-
-                priceSimulator.executeTrade(tradeAmountSC, true);
-
-                System.out.printf("SIMULIERT KAUF: %s... kaufte %.3f SC für %.2f USD (%.0f%% der USD-Balance) | Neuer Preis: %.4f%n",
-                        tradingWallet.getAddress().substring(0, 10), tradeAmountSC, usdValue, actualTradePercentage * 100, priceSimulator.getCurrentPrice());
-
-            } catch (Exception ignored) { return; }
-
-
-        } else {
-            // SC VERKAUFEN (SC -> USD, an Exchange)
-
-            // Finaler Check: Hat die Wallet genug SC?
-            if (tradingWallet.getBalance() < tradeAmountSC + 0.01) {
-                return;
-            }
-
-            try {
-                tradingWallet.creditUsd(usdValue);
-                txs.add(tradingWallet.createTransaction(MyChainGUI.EXCHANGE_ADDRESS, tradeAmountSC, "SIMULIERT: SC Verkauf an Exchange"));
-
-                priceSimulator.executeTrade(tradeAmountSC, false);
-
-                System.out.printf("SIMULIERT VERKAUF: %s... verkaufte %.3f SC für %.2f USD (%.0f%% der SC-Balance) | Neuer Preis: %.4f%n",
-                        tradingWallet.getAddress().substring(0, 10), tradeAmountSC, usdValue, actualTradePercentage * 100, priceSimulator.getCurrentPrice());
-
-            } catch (Exception ignored) { return; }
+        if (priceUpdateTimer != null) {
+            priceUpdateTimer.cancel();
+            priceUpdateTimer = null;
         }
 
-        // 5. Mining und Speicherung
-        if (!txs.isEmpty()) {
-            blockchain.addBlock(txs);
-            BlockchainPersistence.saveBlockchain(blockchain);
-            WalletManager.recalculateAllBalances();
-            WalletManager.saveWallets();
+        System.out.println("=== NETZWERK-SIMULATION GESTOPPT ===");
+    }
 
-            // GUI-Aktualisierung
-            Platform.runLater(this::triggerUpdate);
+    // --- WALLET-GENERIERUNGS-STEUERUNG ---
+
+    public void startWalletGeneration() {
+        if (running.get() && walletTimer == null) {
+            walletTimer = new Timer(true);
+            System.out.println("--- Wallet-Generierung wieder gestartet. ---");
+            System.out.printf("→ Neue Wallet alle %.2fs (dynamisch, verlangsamt alle %d Wallets um %.0f%%)%n",
+                    currentWalletCreationPeriod / 1000.0, periodThreshold, (100 - periodMultiplier * 100));
+            scheduleNextWalletCreation(currentWalletCreationPeriod);
         }
     }
 
@@ -292,30 +147,235 @@ public class NetworkSimulator {
         }
     }
 
-    public void startWalletGeneration() {
-        if (running.get() && walletTimer == null) {
-            walletTimer = new Timer(true);
-            System.out.println("--- Wallet-Generierung wieder gestartet. ---");
-            // Planen Sie die erste Erstellung mit der aktuellen Periodendauer
-            scheduleNextWalletCreation(currentWalletCreationPeriod);
+    // --- INTERNE HILFSMETHODEN ---
+
+    private void triggerUpdate() {
+        if (onUpdateCallback != null) {
+            Platform.runLater(onUpdateCallback);
         }
     }
 
-    public void stop() {
-        running.set(false);
-
-        if (walletTimer != null) {
-            walletTimer.cancel();
-            walletTimer = null;
+    private void triggerPriceUpdate() {
+        if (onPriceUpdateCallback != null) {
+            Platform.runLater(onPriceUpdateCallback);
         }
-        if (transactionTimer != null) {
-            transactionTimer.cancel();
-            transactionTimer = null;
-        }
-        System.out.println("=== NETZWERK-SIMULATION GESTOPPT ===");
     }
 
-    public boolean isRunning() {
-        return running.get();
+    private static synchronized long getAndSetCurrentTradeMinDelay(int userCount, long minDelayBase, int reductionFactor, long minDelayFast) {
+        long oldDelay = currentTradeMinDelay;
+
+        long delayReduction = (long) userCount * reductionFactor;
+        long newDelay = Math.max(minDelayFast, minDelayBase - delayReduction);
+
+        currentTradeMinDelay = newDelay;
+        return oldDelay;
+    }
+
+
+    private void scheduleNextWalletCreation(long delay) {
+        if (!running.get() || walletTimer == null) return;
+
+        walletTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                if (!running.get()) return;
+
+                Wallet newWallet = WalletManager.createWallet();
+
+                int userWalletCount = WalletManager.getWallets().size() - 1;
+
+                if (userWalletCount > 0 && userWalletCount % periodThreshold == 0) {
+                    long newPeriod = (long) (currentWalletCreationPeriod * periodMultiplier);
+                    currentWalletCreationPeriod = Math.max(newPeriod, MIN_WALLET_CREATION_PERIOD);
+
+                    System.out.printf("--- WALLET-SCHWELLE ERREICHT (%d Wallets)! Neue Wallet-Erstellungsdauer: %.0fms (%.2fs) ---%n",
+                            userWalletCount, (double)currentWalletCreationPeriod, currentWalletCreationPeriod / 1000.0);
+                }
+
+                Platform.runLater(() -> {
+                });
+
+                scheduleNextWalletCreation(currentWalletCreationPeriod);
+            }
+        }, delay);
+    }
+
+
+    private void scheduleNextTrade(long delay) {
+        if (!running.get() || transactionTimer == null) return;
+
+        transactionTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                if (!running.get()) return;
+
+                simulateTrade();
+
+                // 🛑 WICHTIG: Nutzt die historische maximale Anzahl an Wallets für die Geschwindigkeit
+                int userWalletCount = WalletManager.getMaxWalletCountForSimulation();
+
+                long maxDelayBase = 900;
+                long minDelayBase = 300;
+                long minDelayFast = 10;
+                int reductionFactor = 1;
+
+                long delayReduction = (long) userWalletCount * reductionFactor;
+
+                long actualMinDelay = Math.max(minDelayFast, minDelayBase - delayReduction);
+                long actualMaxDelay = Math.max(actualMinDelay, maxDelayBase - delayReduction);
+
+                long oldActualMinDelay = getAndSetCurrentTradeMinDelay(userWalletCount, minDelayBase, reductionFactor, minDelayFast);
+
+                if (actualMinDelay != oldActualMinDelay) {
+                    System.out.printf("--- HANDELS-SCHWELLE GEÄNDERT (%d Wallets)! Neue Handelsspanne: %.0fms - %.0fms ---%n",
+                            userWalletCount, (double)actualMinDelay, (double)actualMaxDelay);
+                }
+
+                long range = actualMaxDelay - actualMinDelay + 1;
+                long nextDelay = actualMinDelay + new Random().nextInt((int) range);
+
+                scheduleNextTrade(nextDelay);
+            }
+        }, delay);
+    }
+
+    /**
+     * Prüft die Größe der Blockchain-Datei und setzt die Kette bis auf den Genesis Block zurück,
+     * falls das Limit überschritten wird.
+     * @return true, wenn die Kette zurückgesetzt wurde.
+     */
+    private boolean checkAndResetChain() {
+        try {
+            java.io.File file = new java.io.File(BLOCKCHAIN_FILE_PATH);
+
+            if (file.exists() && file.length() > MAX_FILE_SIZE_BYTES) {
+                System.out.printf("🚨 ALARM: Blockchain-Datei (%.2f MB) überschreitet Limit (%.2f MB). Wird auf Genesis Block zurückgesetzt...%n",
+                        file.length() / (1024.0 * 1024.0), MAX_FILE_SIZE_BYTES / (1024.0 * 1024.0));
+
+                // 1. Kette zurücksetzen, behält Genesis Block (#0)
+                blockchain.resetChain();
+
+                // 2. Wallets neu berechnen: Setzt die Balancen auf den Stand nach der Genesis-Transaktion zurück.
+                WalletManager.recalculateAllBalances();
+                WalletManager.saveWallets();
+
+                // 3. Neue (kleine) Kette speichern (überschreibt die alte, große Datei)
+                BlockchainPersistence.saveBlockchain(blockchain);
+
+                // Da ein Reset die Chain verändert, muss ein UI Update an den Update-Timer gesendet werden.
+                triggerUpdate();
+
+                return true;
+            }
+        } catch (Exception e) {
+            System.err.println("Fehler bei der Überprüfung/Zurücksetzung der Blockchain-Datei: " + e.getMessage());
+        }
+        return false;
+    }
+
+
+    private boolean simulateTrade() {
+        // 1. Initialisierung und Vorbereitung
+        List<Wallet> allWallets = WalletManager.getWallets();
+        Wallet supplyWallet = WalletManager.SUPPLY_WALLET;
+        Random r = new Random();
+
+        List<Wallet> userWallets = allWallets.stream()
+                .filter(w -> !w.getAddress().equals(supplyWallet.getAddress()))
+                .toList();
+
+        if (userWallets.isEmpty()) return false;
+
+        // 2. Auswahl der Wallet und Handelsrichtung
+        Wallet tradingWallet = userWallets.get(r.nextInt(userWallets.size()));
+
+        boolean mustBuy = tradingWallet.getBalance() < 0.01;
+
+        boolean isBuy;
+        if (mustBuy) {
+            isBuy = true;
+        } else {
+            isBuy = r.nextDouble() < this.buyBias;
+            System.out.println(buyBias);
+        }
+
+        // 3. Berechnung des Handelsbetrags
+        double currentPrice = priceSimulator.getCurrentPrice();
+
+        final double MIN_PERCENTAGE = 0.33;
+        final double MAX_PERCENTAGE = 0.95;
+
+        double actualTradePercentage = MIN_PERCENTAGE + (MAX_PERCENTAGE - MIN_PERCENTAGE) * r.nextDouble();
+
+        double usdToTrade;
+
+        if (isBuy) {
+            usdToTrade = tradingWallet.getUsdBalance() * actualTradePercentage;
+        } else {
+            usdToTrade = (tradingWallet.getBalance() * actualTradePercentage) * currentPrice;
+        }
+
+        usdToTrade = Math.max(1.0, usdToTrade);
+        usdToTrade = Math.min(usdToTrade, 10000000000.0);
+
+        double tradeAmountSC = Math.round((usdToTrade / currentPrice) * 1000.0) / 1000.0;
+        double usdValue = tradeAmountSC * currentPrice;
+
+        if (usdValue < 1.0 || tradeAmountSC < 0.001) {
+            return false;
+        }
+
+        List<Transaction> txs = new ArrayList<>();
+
+        // 4. Ausführung der Transaktion
+        if (isBuy) {
+            if (tradingWallet.getUsdBalance() < usdValue || supplyWallet.getBalance() < tradeAmountSC + 0.01) {
+                return false;
+            }
+
+            try {
+                tradingWallet.debitUsd(usdValue);
+                txs.add(supplyWallet.createTransaction(tradingWallet.getAddress(), tradeAmountSC, "SIMULIERT: SC Kauf von Supply"));
+
+                priceSimulator.executeTrade(tradeAmountSC, true);
+
+                System.out.printf("SIMULIERT KAUF: %s... kaufte %.3f SC für %.2f USD (%.0f%%) | Neuer Preis: %.4f%n",
+                        tradingWallet.getAddress().substring(0, 10), tradeAmountSC, usdValue, actualTradePercentage * 100, priceSimulator.getCurrentPrice());
+
+            } catch (Exception ignored) { return false; }
+
+
+        } else {
+            if (tradingWallet.getBalance() < tradeAmountSC + 0.01) {
+                return false;
+            }
+
+            try {
+                tradingWallet.creditUsd(usdValue);
+                txs.add(tradingWallet.createTransaction(MyChainGUI.EXCHANGE_ADDRESS, tradeAmountSC, "SIMULIERT: SC Verkauf an Exchange"));
+
+                priceSimulator.executeTrade(tradeAmountSC, false);
+
+                System.out.printf("SIMULIERT VERKAUF: %s... verkaufte %.3f SC für %.2f USD (%.0f%%) | Neuer Preis: %.4f%n",
+                        tradingWallet.getAddress().substring(0, 10), tradeAmountSC, usdValue, actualTradePercentage * 100, priceSimulator.getCurrentPrice());
+
+            } catch (Exception ignored) { return false; }
+        }
+
+        // 5. Mining und Speicherung
+        if (!txs.isEmpty()) {
+            blockchain.addBlock(txs);
+
+            // 🛑 PRÜFUNG: Blockchain Reset
+            checkAndResetChain();
+
+            // Speichern und Wallets neu berechnen
+            BlockchainPersistence.saveBlockchain(blockchain);
+            WalletManager.recalculateAllBalances();
+            WalletManager.saveWallets(); // Speichert nur kritische Wallets
+
+            return true;
+        }
+        return false;
     }
 }

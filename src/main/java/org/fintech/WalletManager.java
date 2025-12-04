@@ -7,8 +7,9 @@ import java.io.*;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random; // Wichtig: Random muss importiert sein
+import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors; // Import für stream.Collectors
 
 public class WalletManager {
     private static final String WALLETS_FILE = "wallets.json";
@@ -17,6 +18,9 @@ public class WalletManager {
     // Dedizierte Wallet für den Coin-Supply
     public static final Wallet SUPPLY_WALLET = new Wallet("admin");
     private static int nextWalletId = 1;
+
+    // 🛑 NEU: Historischer Zähler für die Simulationsgeschwindigkeit
+    private static int maxWalletCountForSimulation = 0;
 
     private static List<Wallet> wallets = new CopyOnWriteArrayList<>();
 
@@ -28,28 +32,44 @@ public class WalletManager {
     }
 
     public static void loadWallets() {
+        // 🛑 NEUSTART-LOGIK: Setzt den historischen Zähler beim Programmstart auf 0.
+        maxWalletCountForSimulation = 0;
+
+        wallets.clear();
+        wallets.add(SUPPLY_WALLET);
+
         File file = new File(WALLETS_FILE);
 
         if (file.exists() && file.length() > 0) {
             try (Reader reader = new FileReader(file)) {
                 Type listType = new TypeToken<ArrayList<Wallet>>(){}.getType();
-                wallets = gson.fromJson(reader, listType);
-                if (wallets == null) wallets = new ArrayList<>();
+                List<Wallet> loadedWallets = gson.fromJson(reader, listType);
 
-                int maxId = wallets.stream()
-                        .mapToInt(Wallet::getUniqueId) // ACHTUNG: Setzt voraus, dass Wallet.getUniqueId() nun int liefert
+                if (loadedWallets == null) loadedWallets = new ArrayList<>();
+
+                // Füge geladene Wallets hinzu (nur die kritischen Wallets sollten in der Datei sein)
+                loadedWallets.stream()
+                        .filter(w -> !w.getAddress().equals(SUPPLY_WALLET.getAddress()))
+                        .forEach(wallets::add);
+
+                // Bestimme die nächste freie ID basierend auf den geladenen Wallets
+                int maxId = loadedWallets.stream()
+                        // Annahme: Wallet.getUniqueId() existiert und liefert int
+                        .mapToInt(Wallet::getUniqueId)
                         .max()
                         .orElse(0);
 
                 nextWalletId = maxId + 1;
                 System.out.println("System meldet: Nächste Wallet ID startet bei: " + nextWalletId);
+
             } catch (Exception e) {
                 System.err.println("Fehler beim Laden der Wallets: " + e.getMessage());
-                wallets = new ArrayList<>();
+                // Wenn Fehler, nur die Supply Wallet behalten
             }
         }
         else {
-            wallets = new ArrayList<>();
+            // Initialisierung für leere Datei/ersten Start
+            wallets = new CopyOnWriteArrayList<>();
             SUPPLY_WALLET.setUsdBalance(0.0);
             wallets.add(SUPPLY_WALLET);
 
@@ -57,53 +77,72 @@ public class WalletManager {
             Wallet firstUser = createNewUserWallet();
             wallets.add(firstUser);
         }
+
+        // 🛑 Aktualisiert den Zähler mit der aktuellen geladenen Größe
+        if (wallets.size() > maxWalletCountForSimulation) {
+            maxWalletCountForSimulation = wallets.size();
+        }
+
         System.out.println(wallets.size() + " Wallet(s) geladen/initialisiert.");
         recalculateAllBalances();
     }
 
+    /**
+     * Speichert nur kritische Wallets (Supply, Exchange) auf die Festplatte,
+     * um die Dateigröße klein zu halten. User Wallets bleiben im RAM.
+     */
     public static synchronized void saveWallets() {
+        List<Wallet> allWallets = getWallets();
+        List<Wallet> walletsToSave = new ArrayList<>();
+
+        // 1. Supply Wallet speichern
+        if (!allWallets.isEmpty()) {
+            walletsToSave.add(SUPPLY_WALLET);
+        }
+
+        // 2. Exchange Wallet speichern (Voraussetzung: MyChainGUI.EXCHANGE_ADDRESS muss existieren)
+        Wallet exchange = allWallets.stream()
+                .filter(w -> w.getAddress().equals(MyChainGUI.EXCHANGE_ADDRESS))
+                .findFirst().orElse(null);
+        if (exchange != null && !walletsToSave.contains(exchange)) {
+            walletsToSave.add(exchange);
+        }
+
+        // 🛑 Nur die kritischen Wallets speichern
         try (Writer writer = new FileWriter(WALLETS_FILE)) {
-            gson.toJson(wallets, writer);
-            System.out.println("Wallets erfolgreich gespeichert.");
+            gson.toJson(walletsToSave, writer);
         } catch (IOException e) {
             System.err.println("Fehler beim Speichern der Wallets: " + e.getMessage());
         }
     }
 
+
     private static Wallet createNewUserWallet() {
         Random r = new Random();
-        // Die Zählung der User-Wallets ist die Gesamtanzahl der Wallets (minus die Supply Wallet)
-        // userWalletCount ist die Anzahl der bereits existierenden Wallets. Die neue Wallet ist userWalletCount + 1
-        int newWalletIndex = wallets.size(); // Gesamtanzahl der Wallets inkl. Supply
-        int userWalletCount = newWalletIndex - 1; // User-Wallets (1-basiert)
+        int newWalletIndex = wallets.size();
+        int userWalletCount = newWalletIndex - 1;
         double startingUsd;
-        String walletType = "NORMALE"; // Standardtyp
+        String walletType = "NORMALE";
+
         // -----------------------------------------------------------
-        // 1. OBERSTE PRIORITÄT: EXTREM GROSSE WALLET (50. bis 100.)
+        // 1. OBERSTE PRIORITÄT: EXTREM GROSSE WALLET
         // -----------------------------------------------------------
-        // Prüfen, ob die neue Wallet in den Zyklus 50 bis 100 fällt.
-        // Wir verwenden Modulo 100 für den Zyklus und prüfen, ob die Nummer 50 oder größer ist (50 bis 99).
         int cycle50to100 = (userWalletCount + 1) % 100;
 
-        if (cycle50to100 >= 97 || cycle50to100 == 0) { // 50, 51, ..., 99, 100 (bzw. 0)
-
-            // EXTREM GROSSE BALANCE: 10.000.000 USD bis 100.000.000 USD
+        if (cycle50to100 >= 95 || cycle50to100 == 0) {
             double minMegaLarge = 10000000.0;
             double maxMegaLarge = 100000000.0;
             startingUsd = minMegaLarge + (maxMegaLarge - minMegaLarge) * r.nextDouble();
             walletType = "MEGA-GROSSE";
         }
         // -----------------------------------------------------------
-        // 2. MITTLERE PRIORITÄT: GROSSE WALLET (8. bis 12.)
+        // 2. MITTLERE PRIORITÄT: GROSSE WALLET
         // -----------------------------------------------------------
-        // Die mittlere Logik wird nur ausgeführt, wenn keine Mega-Wallet erstellt wurde.
         else {
-            // userWalletCount ist die Anzahl der bereits existierenden Wallets.
             int newWalletIndexInCycle12 = (userWalletCount + 1) % 12;
 
-            if (newWalletIndexInCycle12 >= 10 || newWalletIndexInCycle12 == 0) {
+            if (newWalletIndexInCycle12 >= 8 || newWalletIndexInCycle12 == 0) {
 
-                // GROSSE BALANCE: 500.000 USD bis 10.000.000 USD
                 double minLarge = 500000.0;
                 double maxLarge = 10000000.0;
                 startingUsd = minLarge + (maxLarge - minLarge) * r.nextDouble();
@@ -113,39 +152,24 @@ public class WalletManager {
             // 3. NIEDRIGSTE PRIORITÄT: NORMALE WALLET (Alle anderen)
             // -----------------------------------------------------------
             else {
-                // Normale Balance: 5.000 USD bis < 500.000 USD
                 double minNormal = 5000.0;
                 double maxNormal = 499999.9;
                 startingUsd = minNormal + (maxNormal - minNormal) * r.nextDouble();
-                // walletType bleibt "NORMALE"
             }
         }
-        // Konsolidierte Ausgabe
         System.out.printf("%s WALLET erstellt (#%d): %.2f USD%n", walletType, userWalletCount + 1, startingUsd);
+        // Annahme: Wallet-Konstruktor(Passwort, USD) erzeugt Keys und Adresse
         return new Wallet(StringUtil.generateRandomPassword(), startingUsd);
     }
 
     public static synchronized Wallet createWallet() {
-        Wallet newWallet = createNewUserWallet(); // 🌟 Nutzt die neue Logik
+        Wallet newWallet = createNewUserWallet();
         wallets.add(newWallet);
-        saveWallets();
-
-        // 100 SC Grant von der SUPPLY_WALLET (bleibt gleich)
-        try {
-            List<Transaction> grantTx = new ArrayList<>();
-            Transaction tx = SUPPLY_WALLET.createTransaction(newWallet.getAddress(), 0.0, "Initial Wallet Grant (100 SC)");
-            grantTx.add(tx);
-
-            Blockchain blockchain = BlockchainPersistence.loadBlockchain("MyChain", 1);
-            blockchain.addBlock(grantTx);
-            BlockchainPersistence.saveBlockchain(blockchain);
-
-            recalculateAllBalances();
-
-        } catch (RuntimeException e) {
-            System.err.println("Fehler beim Initial-SC-Grant: " + e.getMessage());
+        // 🛑 WICHTIG: Aktualisiert den Zähler im RAM für die Geschwindigkeitsskalierung
+        if (wallets.size() > maxWalletCountForSimulation) {
+            maxWalletCountForSimulation = wallets.size();
         }
-
+        saveWallets(); // Speichert nur kritische Wallets
         return newWallet;
     }
 
@@ -158,6 +182,12 @@ public class WalletManager {
                 .filter(w -> w.getAddress().equals(addr))
                 .findFirst()
                 .orElse(null);
+    }
+
+    // --- NEUE HILFSFUNKTION FÜR DEN SIMULATOR ---
+
+    public static int getMaxWalletCountForSimulation() {
+        return maxWalletCountForSimulation;
     }
 
     public static synchronized void recalculateAllBalances() {
@@ -186,6 +216,5 @@ public class WalletManager {
             }
         }
         saveWallets();
-        System.out.println("Balances erfolgreich korrigiert und neu berechnet!");
     }
 }
