@@ -37,6 +37,14 @@ public class Wallet {
         this.initialUsdBalance = startingUsd; // Wert speichern!
     }
 
+    public String getRoundedScBalance() {
+        // 1. Double Balance auf die nächste ganze Zahl runden (long)
+        long roundedBalance = Math.round(this.balance);
+
+        // 2. Als String zurückgeben
+        return String.valueOf(roundedBalance);
+    }
+
     // Für die Supply Wallet, die eine spezielle Balance-Logik hat (immer 0 USD)
     public Wallet(String password) {
         this(password, 0.0);

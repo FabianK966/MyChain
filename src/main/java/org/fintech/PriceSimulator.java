@@ -45,7 +45,7 @@ public class PriceSimulator {
 
         // Standard-Parameter (können in den Feldern definiert sein)
         final double VOLATILITY_FACTOR = 0.00001; // Beispielwert
-        final double MAX_PRICE_CHANGE_PERCENT = 0.50;  // 🛑 50% Limit
+        final double MAX_PRICE_CHANGE_PERCENT = 0.75;  // 🛑 50% Limit
 
         // Berechnen der Preisänderung basierend auf Handelsvolumen
         double priceChange = amountSC * VOLATILITY_FACTOR * getCurrentPrice();
@@ -77,8 +77,8 @@ public class PriceSimulator {
         currentPrice = potentialNewPrice;
 
         // Sicherstellen, dass der Preis nicht negativ oder extrem niedrig wird
-        if (currentPrice < 0.3) {
-            currentPrice = 0.3;
+        if (currentPrice < 0.01) {
+            currentPrice = 0.01;
         }
     }
 

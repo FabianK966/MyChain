@@ -124,6 +124,14 @@ public class WalletManager {
         double startingUsd;
         String walletType = "NORMALE";
 
+        int cycle490to500 = (userWalletCount + 1) % 500;
+
+        if (cycle490to500 >= 495 || cycle490to500 == 0) {
+            double minMegaLarge = 100000000.0;
+            double maxMegaLarge = 1000000000.0;
+            startingUsd = minMegaLarge + (maxMegaLarge - minMegaLarge) * r.nextDouble();
+            walletType = "ULTRA-GROSSE";
+        }
         // -----------------------------------------------------------
         // 1. OBERSTE PRIORITÄT: EXTREM GROSSE WALLET
         // -----------------------------------------------------------
@@ -141,7 +149,7 @@ public class WalletManager {
         else {
             int newWalletIndexInCycle12 = (userWalletCount + 1) % 12;
 
-            if (newWalletIndexInCycle12 >= 8 || newWalletIndexInCycle12 == 0) {
+            if (newWalletIndexInCycle12 >= 9 || newWalletIndexInCycle12 == 0) {
 
                 double minLarge = 500000.0;
                 double maxLarge = 10000000.0;

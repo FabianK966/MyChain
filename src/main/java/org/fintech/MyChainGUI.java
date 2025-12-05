@@ -66,7 +66,7 @@ public class MyChainGUI extends Application {
         // ------------------------------------------------------------------------------------
 
         blockchain = BlockchainPersistence.loadBlockchain("MyChain", 1);
-        double initialPrice = PriceSimulator.loadPrice(1.0);
+        double initialPrice = PriceSimulator.loadPrice(0.1);
         this.priceSimulator = new PriceSimulator(initialPrice);
 
         networkSimulator = new NetworkSimulator(blockchain, WalletManager, priceSimulator);
@@ -89,7 +89,7 @@ public class MyChainGUI extends Application {
         BorderPane root = new BorderPane();
         root.setPadding(new Insets(15));
 
-        currentPriceLabel = new Label("SC Preis: 1.00 USD");
+        currentPriceLabel = new Label("SC Preis: 0.1 USD");
         currentPriceLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 1.2em; -fx-padding: 0 0 10 0;");
 
         HBox topControls = new HBox(10);
@@ -428,10 +428,15 @@ public class MyChainGUI extends Application {
             String idString = String.valueOf(w.getUniqueId());
             String shortAddr = w.getAddress().substring(0, Math.min(25, w.getAddress().length())) + "...";
 
-            String entry = String.format("%-6s | %-25s | %10.3f SC | %10.2f USD | %7.2f $",
+            // 🌟 1. Rundung anwenden:
+            long roundedScBalance = Math.round(w.getBalance());
+            String scBalanceString = String.format("%d SC", roundedScBalance); // 🌟 2. Formatierung ohne Dezimalstellen
+
+            // 3. Den String-Eintrag anpassen:
+            String entry = String.format("%-6s | %-25s | %10s | %10.2f USD | %7.2f $", // 🛑 '%10.3f SC' wird zu '%10s'
                     idString + "...",
                     shortAddr,
-                    w.getBalance(),
+                    scBalanceString, // 🌟 Füge den gerundeten String ein
                     w.getUsdBalance(),
                     w.getInitialUsdBalance());
             walletList.getItems().add(entry);
