@@ -184,10 +184,22 @@ public class Wallet {
     // USD Balance Methoden
     public void creditUsd(double amount) { this.usdBalance += amount; }
 
-    public void debitUsd(double amount) {
-        if (this.usdBalance < amount) {
-            throw new RuntimeException("Nicht genug Guthaben (USD)! Benötigt: " + String.format("%.2f", amount) + " USD");
+    public synchronized void debitUsd(double amount) throws Exception {
+        // Die Short-Position hält USD als Sicherheit gebunden.
+        // Wir prüfen, ob das gesamte USD-Guthaben (usdBalance) MINUS der abzubuchenden Menge
+        // immer noch größer oder gleich der gebundenen Short-Position (shortPositionUsd) ist.
+        // 🛑 KORREKTUR: Die USD-Bilanz muss größer sein als der abzubuchende Betrag.
+        // Wenn die Short-Logik richtig ist, sollte das USD-Guthaben immer die Short-Position abdecken.
+
+        // Die einfache Überprüfung:
+        if (usdBalance < amount) {
+            // Hier sollte die Exception ausgelöst werden, die Sie sehen.
+            // Fügen Sie zur besseren Diagnose hier die Details hinzu, falls Sie es testen:
+            // System.err.printf("Wallet %s: %.2f USD soll abgebucht werden, nur %.2f USD verfügbar. (Short: %.2f)%n",
+            //     this.address.substring(0, 10), amount, this.usdBalance, this.shortPositionUsd);
+            throw new Exception("USD-Guthaben nicht ausreichend.");
         }
+
         this.usdBalance -= amount;
     }
 
@@ -196,12 +208,11 @@ public class Wallet {
     }
 
     public Transaction createTransaction(String recipient, double amount, String message, double priceAtExecution) {
-        boolean isShortSaleOrCover = recipient.equals(MyChainGUI.EXCHANGE_ADDRESS);
-        if (balance < amount && !isShortSaleOrCover) { // 🛑 PRÜFUNG ANGEPASST: Short-Sales erlauben negativen Saldo
+        boolean isShortSaleOrCover = recipient.equals(MyChainGUI.EXCHANGE_ADDRESS) || message.toLowerCase().contains("short");
+        if (balance < amount && !isShortSaleOrCover) {
             System.err.println("WARNUNG: Wallet " + address + " versucht, mehr SC auszugeben als vorhanden.");
             return null;
         }
-        // Der neue Konstruktor in Transaction.java wird aufgerufen
         return new Transaction(this, recipient, amount, message, priceAtExecution);
     }
 }

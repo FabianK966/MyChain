@@ -2,9 +2,12 @@ package org.fintech;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList; // Behält den Import bei
 
 public class Blockchain {
-    private final List<Block> chain = new ArrayList<>();
+
+    // 🛑 KORRIGIERT: Wird nun in den Konstruktoren initialisiert
+    private final CopyOnWriteArrayList<Block> chain;
     private final int difficulty;
     private final String name;
 
@@ -25,10 +28,11 @@ public class Blockchain {
         return -1;
     }
 
-    // 🛑 Konstruktor für neue Kette (Genesis Block wird hier erstellt)
+    // 🛑 KORRIGIERT: Konstruktor für neue Kette (Genesis Block wird hier erstellt)
     public Blockchain(String name, int difficulty) {
         this.name = name;
         this.difficulty = difficulty;
+        this.chain = new CopyOnWriteArrayList<>(); // ⬅️ KORREKTUR: Initialisierung hinzugefügt
 
         if (chain.isEmpty()) {
             Wallet supplyWallet = WalletManager.SUPPLY_WALLET;
@@ -52,13 +56,16 @@ public class Blockchain {
         }
     }
 
-
+    // 🛑 KORRIGIERT: Konstruktor für geladene Kette
     public Blockchain(List<Block> loadedBlocks, String name, int difficulty) {
         this.name = name;
         this.difficulty = difficulty;
+        this.chain = new CopyOnWriteArrayList<>(); // ⬅️ KORREKTUR: Initialisierung hinzugefügt
         this.chain.addAll(loadedBlocks);
     }
 
+    // Die synchronized-Methode ist bei CopyOnWriteArrayList nicht zwingend notwendig,
+    // aber schadet nicht, um die atomare Operation zu gewährleisten.
     public synchronized void addBlock(List<Transaction> transactions) {
         Block last = chain.get(chain.size() - 1);
         Block newBlock = new Block(transactions, last.getHash());
@@ -72,7 +79,14 @@ public class Blockchain {
         if (this.chain.size() > 1) {
             // WICHTIG: Entfernt alle Blöcke ab Index 1 (behält den Genesis Block bei Index 0)
             resets++;
-            this.chain.subList(1, this.chain.size()).clear();
+            // Das Clear() auf die Sublist funktioniert bei CopyOnWriteArrayList nicht direkt wie bei ArrayList,
+            // aber wir können Blöcke ab Index 1 manuell entfernen, um sicherzugehen.
+
+            // Einfache Methode für CoWAL: alle Blöcke außer Genesis entfernen
+            while (this.chain.size() > 1) {
+                this.chain.remove(this.chain.size() - 1);
+            }
+
             System.out.println("--- Kette zurückgesetzt. Alle Blöcke außer Genesis (#0) wurden gelöscht und die Kette wurde "+ resets+"x resettet. ---");
         } else if (this.chain.size() == 1) {
             System.out.println("--- Kette enthält nur den Genesis Block. Keine Aktion erforderlich. ---");
