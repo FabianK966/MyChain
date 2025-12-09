@@ -36,57 +36,17 @@ public class WalletManager {
     }
 
     public static void loadWallets() {
-        // 🛑 NEUSTART-LOGIK: Setzt den historischen Zähler beim Programmstart auf 0.
+        // 🛑 ÄNDERUNG: Immer neu initialisieren, nie laden
         maxWalletCountForSimulation = 0;
-
         wallets.clear();
         wallets.add(SUPPLY_WALLET);
 
-        File file = new File(WALLETS_FILE);
+        // Erste Benutzer-Wallet mit spezieller Initialisierung
+        Wallet firstUser = createNewUserWallet();
+        wallets.add(firstUser);
 
-        if (file.exists() && file.length() > 0) {
-            try (Reader reader = new FileReader(file)) {
-                Type listType = new TypeToken<ArrayList<Wallet>>(){}.getType();
-                List<Wallet> loadedWallets = gson.fromJson(reader, listType);
-
-                if (loadedWallets == null) loadedWallets = new ArrayList<>();
-
-                // Füge geladene Wallets hinzu (nur die kritischen Wallets sollten in der Datei sein)
-                loadedWallets.stream()
-                        .filter(w -> !w.getAddress().equals(SUPPLY_WALLET.getAddress()))
-                        .forEach(wallets::add);
-
-                // Bestimme die nächste freie ID basierend auf den geladenen Wallets
-                int maxId = loadedWallets.stream()
-                        .mapToInt(Wallet::getUniqueId)
-                        .max()
-                        .orElse(0);
-
-                nextWalletId = maxId + 1;
-                System.out.println("System meldet: Nächste Wallet ID startet bei: " + nextWalletId);
-
-            } catch (Exception e) {
-                System.err.println("Fehler beim Laden der Wallets: " + e.getMessage());
-            }
-        }
-        else {
-            // Initialisierung für leere Datei/ersten Start
-            wallets = new CopyOnWriteArrayList<>();
-            SUPPLY_WALLET.setUsdBalance(0.0);
-            wallets.add(SUPPLY_WALLET);
-
-            // Erste Benutzer-Wallet mit spezieller Initialisierung
-            Wallet firstUser = createNewUserWallet();
-            wallets.add(firstUser);
-        }
-
-        // 🛑 Aktualisiert den Zähler mit der aktuellen geladenen Größe
-        if (wallets.size() > maxWalletCountForSimulation) {
-            maxWalletCountForSimulation = wallets.size();
-        }
-
-        System.out.println(wallets.size() + " Wallet(s) geladen/initialisiert.");
-        updateAllBalancesFromBlockchain(); // 🔧 GEÄNDERT: Verwende die neue Methode
+        System.out.println("Wallets neu initialisiert (kein Laden).");
+        updateAllBalancesFromBlockchain();
     }
 
     /**
@@ -94,29 +54,11 @@ public class WalletManager {
      * um die Dateigröße klein zu halten. User Wallets bleiben im RAM.
      */
     public static synchronized void saveWallets() {
-        List<Wallet> allWallets = getWallets();
-        List<Wallet> walletsToSave = new ArrayList<>();
-
-        // 1. Supply Wallet speichern
-        if (!allWallets.isEmpty()) {
-            walletsToSave.add(SUPPLY_WALLET);
-        }
-
-        // 2. Exchange Wallet speichern (Voraussetzung: MyChainGUI.EXCHANGE_ADDRESS muss existieren)
-        Wallet exchange = allWallets.stream()
-                .filter(w -> MyChainGUI.EXCHANGE_ADDRESS != null && w.getAddress().equals(MyChainGUI.EXCHANGE_ADDRESS))
-                .findFirst().orElse(null);
-        if (exchange != null && !walletsToSave.contains(exchange)) {
-            walletsToSave.add(exchange);
-        }
-
-        // 🛑 Nur die kritischen Wallets speichern
-        try (Writer writer = new FileWriter(WALLETS_FILE)) {
-            gson.toJson(walletsToSave, writer);
-        } catch (IOException e) {
-            System.err.println("Fehler beim Speichern der Wallets: " + e.getMessage());
-        }
+        // 🛑 ÄNDERUNG: Nichts speichern (leer lassen)
+        // Optional: Nur loggen für Debugging
+        System.out.println("Wallets würden gespeichert (" + wallets.size() + " Wallets)");
     }
+
 
     private static Wallet createNewUserWallet() {
         Random r = new Random();
@@ -199,7 +141,10 @@ public class WalletManager {
         if (wallets.size() > maxWalletCountForSimulation) {
             maxWalletCountForSimulation = wallets.size();
         }
-        saveWallets();
+
+        // 🛑 ÄNDERUNG: saveWallets() entfernt
+        // saveWallets(); // ENTFERNT
+
         return newWallet;
     }
 

@@ -18,37 +18,15 @@ public class BlockchainPersistence {
 
     // Blockchain speichern
     public static void saveBlockchain(Blockchain blockchain) {
-        List<Block> blocks = blockchain.getChain();
-        String json = gson.toJson(blocks);
-
-        try (Writer writer = new FileWriter(FILE_NAME)) {
-            writer.write(json);
-        } catch (IOException e) {
-            System.err.println("Fehler beim Speichern: " + e.getMessage());
-        }
+        // 🛑 ÄNDERUNG: Nichts speichern (leer lassen)
+        // Optional: Nur loggen für Debugging
+        // System.out.println("Blockchain würde gespeichert (" + blockchain.getChain().size() + " Blöcke)");
     }
 
     // Blockchain laden (oder neue erstellen, falls keine Datei)
     public static Blockchain loadBlockchain(String name, int difficulty) {
-        File file = new File(FILE_NAME);
-        if (!file.exists()) {
-            System.out.println("Keine gespeicherte Blockchain gefunden → neue wird erstellt.");
-            return new Blockchain(name, difficulty);
-        }
-
-        try (Reader reader = new FileReader(FILE_NAME)) {
-            Type listType = new TypeToken<ArrayList<Block>>(){}.getType();
-            List<Block> loadedBlocks = gson.fromJson(reader, listType);
-
-            if (loadedBlocks == null || loadedBlocks.isEmpty()) {
-                System.out.println("Datei leer → neue Chain");
-                return new Blockchain(name, difficulty);
-            }
-            return new Blockchain(loadedBlocks, name, difficulty);
-
-        } catch (Exception e) {
-            System.out.println("Fehler beim Laden – neue Chain wird erstellt. Fehler: " + e.getMessage());
-            return new Blockchain(name, difficulty);
-        }
+        // 🛑 ÄNDERUNG: Immer neue Blockchain erstellen, nie laden
+        System.out.println("Neue Blockchain wird erstellt (kein Laden).");
+        return new Blockchain(name, difficulty);
     }
 }

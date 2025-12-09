@@ -414,13 +414,6 @@ public class NetworkSimulator {
             // 🔧 FÜGE DIES HINZU:
             Block newBlock = blockchain.getChain().get(blockchain.getChain().size() - 1);
             WalletManager.updateBalancesFromLastBlock(newBlock);
-
-            // Prüfung auf Blockchain Reset (Angenommen, diese Methode existiert)
-            // checkAndResetChain();
-
-            BlockchainPersistence.saveBlockchain(blockchain);
-            WalletManager.saveWallets();
-
             return true;
         }
         return false;
