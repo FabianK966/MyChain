@@ -22,10 +22,14 @@ public class Block {
         this.hash = calculateHash();
     }
 
-    // Genesis-Block – KEIN privateKey mehr!
+    // Genesis-Block
     public Block(String genesisMessage) {
         this.transactions = new ArrayList<>();
-        Transaction genesisTx = new Transaction("system", "genesis", 1000.0, genesisMessage);
+
+        // 🛑 ANPASSUNG: Transaction benötigt jetzt den Preis (angenommen 1.0 für Genesis)
+        // Transaction(String sender, String recipient, double amount, String message, double priceAtExecution)
+        Transaction genesisTx = new Transaction("system", "genesis", 1000.0, genesisMessage, 0.1); // 🛑 Preis HINZUGEFÜGT
+
         this.transactions.add(genesisTx);
         this.previousHash = "0";
         this.timeStamp = new Date().getTime();
@@ -35,6 +39,8 @@ public class Block {
 
     public String calculateHash() {
         StringBuilder txData = new StringBuilder();
+        // 🛑 ANPASSUNG: Nur der Hash der Transaktion (TX-ID) sollte in den Block-Hash eingehen,
+        // da die TX-ID bereits alle TX-Details (inkl. Preis) gehasht hat.
         for (Transaction tx : transactions) {
             txData.append(tx.getTxId());
         }
@@ -82,6 +88,7 @@ public class Block {
             Type txListType = new com.google.gson.reflect.TypeToken<List<Transaction>>(){}.getType();
             List<Transaction> loadedTxs = ctx.deserialize(obj.get("transactions"), txListType);
 
+            // 🛑 Beim Deserialisieren den normalen Block-Konstruktor verwenden
             Block block = new Block(loadedTxs, obj.get("previousHash").getAsString());
             block.hash = obj.get("hash").getAsString();
             block.nonce = obj.get("nonce").getAsInt();

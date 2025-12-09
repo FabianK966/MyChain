@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors; // Import für stream.Collectors
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 
 public class WalletManager {
     private static final String WALLETS_FILE = "wallets.json";
@@ -103,7 +106,7 @@ public class WalletManager {
 
         // 2. Exchange Wallet speichern (Voraussetzung: MyChainGUI.EXCHANGE_ADDRESS muss existieren)
         Wallet exchange = allWallets.stream()
-                .filter(w -> w.getAddress().equals(MyChainGUI.EXCHANGE_ADDRESS))
+                .filter(w -> MyChainGUI.EXCHANGE_ADDRESS != null && w.getAddress().equals(MyChainGUI.EXCHANGE_ADDRESS))
                 .findFirst().orElse(null);
         if (exchange != null && !walletsToSave.contains(exchange)) {
             walletsToSave.add(exchange);
@@ -172,35 +175,39 @@ public class WalletManager {
     }
 
     // NEUE SIGNATUR: Erfordert Zugriff auf Blockchain und Supply Wallet
-    // NEUE SIGNATUR: Erfordert Zugriff auf Blockchain und Supply Wallet
     public static synchronized Wallet createWallet(Blockchain blockchain, Wallet supplyWallet) {
         // Ruft die bestehende Logik zur Erstellung und USD-Zuweisung auf
         Wallet newWallet = createNewUserWallet();
         wallets.add(newWallet);
 
-        // --- SC GRANT LOGIK (Muss über die Blockchain laufen) ---
+        // --- SC Grant Logik (Muss über die Blockchain laufen) ---
         final double INITIAL_SC_GRANT = 1.0;
 
         if (blockchain != null && supplyWallet != null) {
             try {
-                // 1. Transaktion erstellen: Supply Wallet sendet 1 SC an die neue Wallet
+                // 🛑 PREIS ABGERUFEN: Preis für den Grant holen
+                double currentPrice = MyChainGUI.getCurrentCoinPrice();
+
                 Transaction tx = supplyWallet.createTransaction(
                         newWallet.getAddress(),
                         INITIAL_SC_GRANT,
-                        "INITIAL SC GRANT: 1 SC (Wallet Creation Bonus)"
+                        "INITIAL SC GRANT: 1 SC (Wallet Creation Bonus) 0.00 USD",
+                        currentPrice // 🛑 Preis als 4. Argument übergeben
                 );
 
                 // 2. Transaktion in EIGENEM Block aufnehmen und minen
-                blockchain.addBlock(Collections.singletonList(tx));
+                if (tx != null) {
+                    blockchain.addBlock(Collections.singletonList(tx));
 
-                // 3. Salden neu berechnen, da ein neuer Block existiert
-                recalculateAllBalances();
+                    // 3. Salden neu berechnen, da ein neuer Block existiert
+                    recalculateAllBalances();
 
-                // Protokollierung der erfolgreichen Zuweisung
-                System.out.printf("   → Block erstellt (#%d) mit Initial %.1f SC Grant an %s...%n",
-                        blockchain.getChain().size() - 1,
-                        INITIAL_SC_GRANT,
-                        newWallet.getAddress().substring(0, 10));
+                    // Protokollierung der erfolgreichen Zuweisung
+                    System.out.printf("   → Block erstellt (#%d) mit Initial %.1f SC Grant an %s...%n",
+                            blockchain.getChain().size() - 1,
+                            INITIAL_SC_GRANT,
+                            newWallet.getAddress().substring(0, 10));
+                }
 
             } catch (Exception e) {
                 System.err.println("Fehler beim Hinzufügen der initialen SC-Transaktion: " + e.getMessage());
@@ -234,28 +241,138 @@ public class WalletManager {
         return maxWalletCountForSimulation;
     }
 
-    public static synchronized void recalculateAllBalances() {
-        for (Wallet w : wallets) w.setBalance(0.0);
+    /**
+     * Ermittelt den USD-Wert des Trades aus der Transaktionsnachricht.
+     * Muss mit der Logik im NetworkSimulator übereinstimmen.
+     */
+    private static double parseUsdValueFromMessage(String message) {
+        if (message != null && message.contains("USD")) {
+            try {
+                // Findet die letzte Zahl (die den USD-Wert repräsentiert) vor " USD"
+                // ([\\d.,]+) : Sucht nach Ziffern, Punkten und Kommas (macht es robuster)
+                // \\sUSD    : Gefolgt von Leerzeichen und USD
+                Pattern p = Pattern.compile("([\\d.,]+)\\sUSD");
+                Matcher m = p.matcher(message);
 
+                String lastMatch = null;
+
+                // Finde den LETZTEN Match in der Nachricht
+                while (m.find()) {
+                    lastMatch = m.group(1);
+                }
+
+                if (lastMatch != null) {
+                    // Ersetze das Tausendertrennzeichen (Punkt) und behalte nur das Dezimaltrennzeichen (Komma oder Punkt)
+                    // Da Java Double.parseDouble Punkte als Dezimaltrennzeichen erwartet:
+                    String cleanValue = lastMatch.replace(",", "."); // Ersetze Kommas durch Punkte
+
+                    // Entferne alle weiteren Punkte/Trennzeichen, wenn sie Tausendertrennzeichen sind
+                    // (Dies ist riskant, aber notwendig, wenn die Nachricht Tausender-Formatierung enthält)
+
+                    // Am sichersten: Nehmen wir an, Ihre Nachrichten haben nur einen Dezimalpunkt.
+                    // Wir verwenden hier die ursprüngliche Logik, aber stellen sicher, dass wir den letzten Treffer nutzen.
+                    return Double.parseDouble(lastMatch);
+                }
+            } catch (Exception e) {
+                // ... Fehlerbehandlung
+            }
+        }
+        return 0.0;
+    }
+
+    // 🛑 KORRIGIERTE METHODE: Implementiert das Netting der Long/Short-Positionen
+    public static synchronized void recalculateAllBalances() {
         Blockchain chain = BlockchainPersistence.loadBlockchain("MyChain", 1);
 
+        // 1. Alle Salden und Positionen zurücksetzen
+        for (Wallet w : wallets) {
+            w.setBalance(0.0);
+            w.setUsdBalance(w.getInitialUsdBalance()); // USD auf Initialwert zurücksetzen
+
+            // 🛑 WICHTIG: Setzt Positionen auf 0 für das Netting
+            w.setLongPositionUsd(0.0);
+            w.setShortPositionUsd(0.0);
+
+            w.setTransactionHistory(new ArrayList<>()); // Historie zurücksetzen
+        }
+
+        // 2. Transaktionen durchlaufen und Salden/Positionen/Historie aktualisieren
         for (Block block : chain.getChain()) {
             for (Transaction tx : block.getTransactions()) {
                 String sender = tx.getSender();
                 String recipient = tx.getRecipient();
                 double amount = tx.getAmount();
 
-                boolean isCoinbase = "system".equals(sender) || sender == null || sender.isEmpty();
-                boolean isExchangeSell = MyChainGUI.EXCHANGE_ADDRESS.equals(recipient);
+                Wallet senderWallet = findWalletByAddress(sender);
+                Wallet recipientWallet = findWalletByAddress(recipient);
 
+                // Füge Transaktion zur Historie beider Wallets hinzu (falls existent)
+                if (senderWallet != null) senderWallet.getTransactionHistory().add(tx);
+                if (recipientWallet != null) recipientWallet.getTransactionHistory().add(tx);
+
+
+                // --- SC Balance und Positionen berechnen ---
+
+                boolean isExchangeSell = MyChainGUI.EXCHANGE_ADDRESS.equals(recipient);
+                boolean isCoinbase = "system".equals(sender) || sender == null || sender.isEmpty();
+
+                // 1. SC-Übertragungen (Normales Krypto-Guthaben)
                 if (!isCoinbase) {
-                    Wallet from = findWalletByAddress(sender);
-                    if (from != null) from.debit(amount);
+                    if (senderWallet != null) senderWallet.debit(amount);
+                }
+                if (!isExchangeSell) {
+                    if (recipientWallet != null) recipientWallet.credit(amount);
                 }
 
-                if (!isExchangeSell) {
-                    Wallet to = findWalletByAddress(recipient);
-                    if (to != null) to.credit(amount);
+                // 2. USD/Positions-Logik (Nur bei Trades mit der Exchange/Supply Wallet)
+                double usdValue = parseUsdValueFromMessage(tx.getMessage());
+                String message = tx.getMessage(); // Zum Prüfen des Trade-Typs
+
+                // Fall 1: KAUF (LONG / SHORT-COVER) - Supply Wallet sendet
+                if (recipientWallet != null && sender.equals(WalletManager.SUPPLY_WALLET.getAddress()) && message.contains("Kauf (LONG)") && usdValue > 0) {
+                    // Wallet zahlt USD (Debit)
+                    try {
+                        recipientWallet.debitUsd(usdValue);
+                    } catch (Exception e) {
+                        System.err.println("Kritischer Fehler: USD-Guthaben nicht ausreichend beim Recalculate für Kauf-TX!");
+                    }
+
+                    // 🛑 NETTING LOGIK FÜR SHORT-COVER ODER LONG-ÖFFNUNG
+                    // Prüfe, ob die Wallet Short war, bevor der Kauf stattfand (aktueller Saldo zeigt den Status nach TX an)
+                    // Da die SC-Balance bereits oben aktualisiert wurde:
+                    if (recipientWallet.getBalance() < 0) {
+                        // -> Wallet war Short (negative Balance) und dieser Kauf dient dem Eindecken (Covering)
+                        recipientWallet.setShortPositionUsd(recipientWallet.getShortPositionUsd() - usdValue);
+                        if (recipientWallet.getShortPositionUsd() < 0) recipientWallet.setShortPositionUsd(0.0);
+                    } else {
+                        // -> Wallet war nicht Short oder ist jetzt wieder Long: Erhöht Long-Exposure
+                        recipientWallet.setLongPositionUsd(recipientWallet.getLongPositionUsd() + usdValue);
+                    }
+                }
+
+                // Fall 2: VERKAUF (LONG) - Schließt Long-Position
+                else if (senderWallet != null && recipient.equals(MyChainGUI.EXCHANGE_ADDRESS) && message.contains("Verkauf (LONG)") && usdValue > 0) {
+                    // Wallet erhält USD (Credit)
+                    senderWallet.creditUsd(usdValue);
+
+                    // 🛑 NETTING LOGIK FÜR LONG-SCHLIESSUNG
+                    // Die Long-Position wurde geschlossen/teilweise reduziert
+                    senderWallet.setLongPositionUsd(senderWallet.getLongPositionUsd() - usdValue);
+                    if (senderWallet.getLongPositionUsd() < 0) senderWallet.setLongPositionUsd(0.0);
+                }
+
+                // Fall 3: SHORT-SALE - Eröffnet Short-Position
+                else if (senderWallet != null && recipient.equals(MyChainGUI.EXCHANGE_ADDRESS) && message.contains("Verkauf (SHORT)") && usdValue > 0) {
+                    // Wallet erhält USD (Credit)
+                    senderWallet.creditUsd(usdValue);
+
+                    // Dies ist eine Short-Position (Short-Exposure wird hinzugefügt)
+                    senderWallet.setShortPositionUsd(senderWallet.getShortPositionUsd() + usdValue);
+                }
+
+                // Fall 4: Initial SC Grant
+                else if (recipientWallet != null && sender.equals(WalletManager.SUPPLY_WALLET.getAddress()) && usdValue == 0.0) {
+                    // Keine USD- oder Positionsänderung
                 }
             }
         }

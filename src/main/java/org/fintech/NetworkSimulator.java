@@ -6,6 +6,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import java.util.Locale;
 
 public class NetworkSimulator {
 
@@ -23,9 +24,9 @@ public class NetworkSimulator {
     private Runnable onPriceUpdateCallback;
 
     // Konfiguration der Wallet-Generierung
-    private static final long MIN_WALLET_CREATION_PERIOD = 500;
+    private static final long MIN_WALLET_CREATION_PERIOD = 200;
     // 🛑 DELAY RESET: Muss beim Start neu gesetzt werden
-    private long currentWalletCreationPeriod = 5000;
+    private long currentWalletCreationPeriod = 3000;
     private final double periodMultiplier = 0.9;
     private final int periodThreshold = 50;
 
@@ -45,9 +46,10 @@ public class NetworkSimulator {
     private static final long GUI_UPDATE_PERIOD = 5000; // 10 Sekunden für Chart/Listen
 
     // HANDELS-GESCHWINDIGKEITSANALYSE
-    private static final long INITIAL_MIN_DELAY = 1200;
+    private static final long INITIAL_MIN_DELAY = 1290;
     // 🛑 DELAY RESET: Muss beim Start neu gesetzt werden
     private static long currentTradeMinDelay = INITIAL_MIN_DELAY;
+
 
     public NetworkSimulator(Blockchain blockchain, WalletManager walletManager, PriceSimulator priceSimulator) {
         this.blockchain = blockchain;
@@ -78,7 +80,7 @@ public class NetworkSimulator {
 
         // 🛑 NEUSTART-LOGIK: Setzt die Delays auf die Startwerte zurück
         currentTradeMinDelay = INITIAL_MIN_DELAY;
-        this.currentWalletCreationPeriod = 5000;
+        this.currentWalletCreationPeriod = 3000;
         // -----------------------------------------------------------------
 
         System.out.println("=== NETZWERK-SIMULATION GESTARTET ===");
@@ -195,7 +197,7 @@ public class NetworkSimulator {
                     currentWalletCreationPeriod = Math.max(newPeriod, MIN_WALLET_CREATION_PERIOD);
 
                     System.out.printf("--- WALLET-SCHWELLE ERREICHT (%d Wallets)! Neue Wallet-Erstellungsdauer: %.0fms (%.2fs) ---%n",
-                            userWalletCount, (double)currentWalletCreationPeriod, currentWalletCreationPeriod / 1000.0);
+                            userWalletCount, (double) currentWalletCreationPeriod, currentWalletCreationPeriod / 1000.0);
                 }
 
                 Platform.runLater(() -> {
@@ -234,7 +236,7 @@ public class NetworkSimulator {
 
                 if (actualMinDelay != oldActualMinDelay) {
                     System.out.printf("--- HANDELS-SCHWELLE GEÄNDERT (%d Wallets)! Neue Handelsspanne: %.0fms - %.0fms ---%n",
-                            userWalletCount, (double)actualMinDelay, (double)actualMaxDelay);
+                            userWalletCount, (double) actualMinDelay, (double) actualMaxDelay);
                 }
 
                 long range = actualMaxDelay - actualMinDelay + 1;
@@ -248,6 +250,7 @@ public class NetworkSimulator {
     /**
      * Prüft die Größe der Blockchain-Datei und setzt die Kette bis auf den Genesis Block zurück,
      * falls das Limit überschritten wird.
+     *
      * @return true, wenn die Kette zurückgesetzt wurde.
      */
     private boolean checkAndResetChain() {
@@ -287,32 +290,21 @@ public class NetworkSimulator {
         Random r = new Random();
 
         List<Wallet> userWallets = allWallets.stream()
-                .filter(w -> !w.getAddress().equals(supplyWallet.getAddress()))
+                .filter(w -> !w.getAddress().equals(supplyWallet.getAddress()) && !w.getAddress().equals(MyChainGUI.EXCHANGE_ADDRESS))
                 .toList();
 
         if (userWallets.isEmpty()) return false;
 
-        // 2. Auswahl der Wallet und Handelsrichtung
-        Wallet tradingWallet = userWallets.get(r.nextInt(userWallets.size()));
+        // Wallet IMMER AKTUELL aus der Manager-Liste holen, um konsistente Salden zu garantieren
+        Wallet tradingWalletCandidate = userWallets.get(r.nextInt(userWallets.size()));
+        Wallet tradingWallet = WalletManager.findWalletByAddress(tradingWalletCandidate.getAddress());
+
+        if (tradingWallet == null) return false;
+
         double currentSCBalance = tradingWallet.getBalance();
 
-        // Muss kaufen, um eine negative Balance zu schließen (Short zu covern)
-        boolean mustBuy = currentSCBalance < -0.01;
-
-        // 🛑 ENTFERNT: Die canShort-Prüfung ist nicht mehr nötig, da jeder verkaufen darf.
-        // boolean canShort = currentSCBalance < MIN_SC_BALANCE_FOR_SHORT;
-
-        boolean isBuy;
-        if (mustBuy) {
-            isBuy = true; // Zwingt zum Kauf, um Short-Position zu schließen (Covering)
-        } else {
-            // Hier greift der Buy-Bias für alle Wallets, die NICHT mustBuy sind.
-            isBuy = r.nextDouble() < this.buyBias;
-        }
-
-        // 🛑 3. Trade-Logik-Anpassung ist jetzt HIER WEGGEFALLEN
-        // Die Logik für Fall B, C und D ist nicht mehr nötig, da jeder Verkauf ins Minus gehen darf.
-
+        // 🌟 NEU: Keine "mustBuy" Logik. Die Handelsrichtung wird nur durch den BuyBias bestimmt.
+        boolean isBuy = r.nextDouble() < this.buyBias;
 
         // 4. Berechnung des Handelsbetrags
         double currentPrice = priceSimulator.getCurrentPrice();
@@ -322,113 +314,128 @@ public class NetworkSimulator {
         double usdToTrade;
 
         if (isBuy) {
-            // 🛑 KORRIGIERTE KAUF-LOGIK: Stellt sicher, dass die USD-Balance die Obergrenze ist.
-
-            // 1. Berechne den gewünschten Kaufbetrag (Prozentsatz der USD-Balance)
+            // 🟢 KAUF (LONG)
+            // Basiere den Betrag auf dem verfügbaren USD-Guthaben
             double desiredUsdToTrade = tradingWallet.getUsdBalance() * actualTradePercentage;
-
-            // 2. Die USD-Balance ist die absolute Obergrenze.
             usdToTrade = Math.min(desiredUsdToTrade, tradingWallet.getUsdBalance());
+
+            // Minimale USD-Liquidität erforderlich
+            if (usdToTrade < 1.0) return false;
+
         } else {
-            // 🟢 VERKAUF / SHORT-TRADE
+            // 🟢 VERKAUF (LONG oder SHORT)
 
-            // 🛑 NEUE LOGIK: Wenn positiv, basiere den Trade auf der SC Balance, wenn negativ oder klein,
-            // basiere ihn auf dem MAX_USD_TO_SHORT Limit.
-            if (currentSCBalance > MIN_SC_BALANCE_FOR_SHORT_LOGGING) { // Wenn die Wallet genug SC hat (> 1.0 SC)
-                // Normaler Verkauf: Basiere den Betrag auf dem USD-Wert der *vorhandenen* SC
+            // SC-Check, um zu bestimmen, ob es ein Long-Verkauf oder ein Short-Sale ist
+            // Achtung: MIN_SC_BALANCE_FOR_SHORT_LOGGING muss hier definiert sein
+            final double MIN_SC_BALANCE_FOR_SHORT_LOGGING = 0.0; // Angenommener Wert
+            boolean isSellingExistingSC = currentSCBalance >= MIN_SC_BALANCE_FOR_SHORT_LOGGING;
+
+            if (isSellingExistingSC) {
+                // Fall 1: Normaler Verkauf (Liquidierung einer bestehenden Long-Position)
+                // Basiere den Betrag auf dem USD-Wert der *verfügbaren* SC
                 usdToTrade = (tradingWallet.getBalance() * actualTradePercentage) * currentPrice;
-            } else {
-                // Short-Sale: Wenn die Wallet wenig SC (<= 1.0) oder negative SC hat, basiere den Trade
-                // auf dem festen Short-Limit, um tiefe Short-Trades zu ermöglichen.
-                usdToTrade = MAX_USD_TO_SHORT * actualTradePercentage;
-            }
 
-            // 🛑 MARGIN CHECK: Unabhängig davon, ob es ein normaler oder Short-Verkauf ist,
-            // wenn es ein Short-Trade ist (was bei kleiner SC-Balance passiert), muss die Wallet genug USD haben
-            // um das Short-Risiko zu decken (10% des Short-Wertes als Sicherheit)
-            if (currentSCBalance < MIN_SC_BALANCE_FOR_SHORT_LOGGING) {
-                if (tradingWallet.getUsdBalance() < usdToTrade * 0.1) {
-                    return false; // Zu wenig USD für das Short-Risiko
+            } else {
+                // Fall 2: Short-Sale (Wallet hat keine/kaum SC oder ist bereits Short)
+
+                // 1. Berechnung der maximalen Short-Menge basierend auf Margin (4x USD-Guthaben bei 25% Margin)
+                final double MARGIN_FACTOR = 1.00;
+                // Achtung: MAX_USD_TO_SHORT muss hier definiert sein
+                final double MAX_USD_TO_SHORT = 10000000.0; // Angenommener Wert
+
+                double maxPossibleShortUsd = tradingWallet.getUsdBalance() / MARGIN_FACTOR;
+
+                // 2. Bestimme den gewünschten Short-Betrag (basierend auf Prozentsatz der Max. Short-Menge)
+                double desiredShortUsd = maxPossibleShortUsd * actualTradePercentage;
+
+                // 3. Begrenzung auf das harte (hohe) Limit MAX_USD_TO_SHORT.
+                usdToTrade = Math.min(desiredShortUsd, MAX_USD_TO_SHORT * actualTradePercentage);
+
+                // Härte Grenze: Wenn die Margin für 1 USD Short nicht reicht, ablehnen.
+                if (tradingWallet.getUsdBalance() < usdToTrade * MARGIN_FACTOR) {
+                    System.out.printf("   ❌ SHORT ABGELEHNT: %s... benötigt %.2f USD Margin (25%%), hat aber nur %.2f USD.%n",
+                            tradingWallet.getAddress().substring(0, 10), usdToTrade * MARGIN_FACTOR, tradingWallet.getUsdBalance());
+                    return false;
                 }
             }
-        }
 
-        usdToTrade = Math.max(1.0, usdToTrade);
-        // 🛑 Die Begrenzung auf 100 Mio. USD MUSS HIER BLEIBEN, um den Short-Trade zu begrenzen,
-        // aber nur, wenn es ein Short-Trade ist. Beim Kauf ist die USD-Balance die Obergrenze.
+            usdToTrade = Math.max(1.0, usdToTrade); // Minimale Trade-Größe
+            if (usdToTrade < 1.0) return false;
+        }
 
         double tradeAmountSC = Math.round((usdToTrade / currentPrice) * 1000.0) / 1000.0;
         double usdValue = tradeAmountSC * currentPrice;
 
-        if (usdValue < 1.0 || tradeAmountSC < 0.001) {
-            return false;
-        }
+        // Trade-Größe prüfen
+        if (usdValue < 1.0 || tradeAmountSC < 0.001) return false;
 
         List<Transaction> txs = new ArrayList<>();
 
         // 5. Ausführung der Transaktion
         if (isBuy) {
-            // 🟢 Kauf (Normal oder Covering)
+            // 🟢 Kauf (LONG-POSITION)
             if (tradingWallet.getUsdBalance() < usdValue || supplyWallet.getBalance() < tradeAmountSC + 0.01) {
                 return false;
             }
 
             try {
                 tradingWallet.debitUsd(usdValue);
-                // Der Kauf wird von der Supply Wallet (Börse) an die Trading Wallet gesendet
-                txs.add(supplyWallet.createTransaction(tradingWallet.getAddress(), tradeAmountSC, "SIMULIERT: SC Kauf von Supply"));
+
+                // 🛑 KORREKTUR: Formatierung mit Locale.US, um Tausendertrennzeichen zu unterdrücken
+                txs.add(supplyWallet.createTransaction(tradingWallet.getAddress(), tradeAmountSC,
+                        String.format(Locale.US, "SIMULIERT: SC Kauf (LONG) von Supply für %.2f USD", usdValue), currentPrice));
 
                 priceSimulator.executeTrade(tradeAmountSC, true);
 
-                String action = currentSCBalance < 0 ? "COVERS SHORT POSITION" : "KAUF";
-                System.out.printf("SIMULIERT KAUF: %s... %s %.3f SC für %.2f USD (%.0f%%) | Neuer Preis: %.4f%n",
-                        tradingWallet.getAddress().substring(0, 10), action, tradeAmountSC, usdValue, actualTradePercentage * 100, priceSimulator.getCurrentPrice());
+                System.out.printf("SIMULIERT KAUF: %s... KAUF (LONG) %.3f SC für %.2f USD (%.0f%%) | Neuer Preis: %.4f%n",
+                        tradingWallet.getAddress().substring(0, 10), tradeAmountSC, usdValue, actualTradePercentage * 100, priceSimulator.getCurrentPrice());
 
-            } catch (Exception ignored) { return false; }
+            } catch (Exception ignored) {
+                return false;
+            }
 
 
         } else {
-            // 🟢 Verkauf (Normal oder Short)
+            // 🟢 Verkauf (LONG oder SHORT)
 
-            // 🛑 NEUE LOGIK: Berechnung der neuen Balance zur Protokollierung
+            // Achtung: MIN_SC_BALANCE_FOR_SHORT_LOGGING muss hier definiert sein
+            final double MIN_SC_BALANCE_FOR_SHORT_LOGGING = 0.0; // Angenommener Wert
             double projectedNewBalance = currentSCBalance - tradeAmountSC;
-
-            String logAction = "VERKAUF";
-
-            if (projectedNewBalance < MIN_SC_BALANCE_FOR_SHORT_LOGGING) {
-                // Wenn die neue Balance unter dem Logging-Limit liegt (oder negativ ist)
-                logAction = "SHORT-SALE";
-            }
-            // Wenn die Wallet schon negativ ist, wird die logAction durch die neue Berechnung automatisch als SHORT-SALE geloggt.
+            String logAction = projectedNewBalance >= MIN_SC_BALANCE_FOR_SHORT_LOGGING ? "VERKAUF (LONG)" : "SHORT-SALE";
 
             try {
                 tradingWallet.creditUsd(usdValue);
-                // Der Verkauf wird von der Trading Wallet an die Exchange (Markt) gesendet
-                // HINWEIS: Hier geht die Balance der Wallet ins Minus, falls tradeAmountSC > currentSCBalance
-                txs.add(tradingWallet.createTransaction(MyChainGUI.EXCHANGE_ADDRESS, tradeAmountSC, "SIMULIERT: SC Verkauf an Exchange"));
+
+                // 🛑 KORREKTUR: Formatierung mit Locale.US
+                txs.add(tradingWallet.createTransaction(MyChainGUI.EXCHANGE_ADDRESS, tradeAmountSC,
+                        String.format(Locale.US, "SIMULIERT: SC Verkauf (%s) an Exchange für %.2f USD", logAction.contains("SHORT") ? "SHORT" : "LONG", usdValue), currentPrice));
 
                 priceSimulator.executeTrade(tradeAmountSC, false);
 
-                // 🛑 ANGEPASSTES LOGGING: Zeigt die projizierte neue Balance an
                 System.out.printf("SIMULIERT %s: %s... verkaufte %.3f SC für %.2f USD (%.0f%%) | Neue Balance: %.3f SC | Neuer Preis: %.4f%n",
                         logAction, tradingWallet.getAddress().substring(0, 10), tradeAmountSC, usdValue, actualTradePercentage * 100, projectedNewBalance, priceSimulator.getCurrentPrice());
 
-            } catch (Exception ignored) { return false; }
+            } catch (Exception ignored) {
+                return false;
+            }
         }
 
         // 6. Mining und Speicherung
         if (!txs.isEmpty()) {
-            // 🛑 WICHTIG: Die addBlock-Methode in Ihrer Blockchain.java MUSS synchronisiert werden!
-            // public synchronized void addBlock(List<Transaction> transactions) { ... }
+            txs.removeIf(tx -> tx == null); // ⬅️ DIESE ZEILE HINZUFÜGEN
+            // Prüfen, ob nach dem Filtern noch gültige Transaktionen übrig sind
+            if (txs.isEmpty()) return false;
             blockchain.addBlock(txs);
 
-            // 🛑 PRÜFUNG: Blockchain Reset
-            checkAndResetChain();
-
-            // Speichern und Wallets neu berechnen
-            BlockchainPersistence.saveBlockchain(blockchain);
+            // 🛑 WICHTIG: WalletManager.recalculateAllBalances() muss NACH dem Block-Add laufen,
+            // um die USD-Salden und Positionen korrekt zu aktualisieren.
             WalletManager.recalculateAllBalances();
-            WalletManager.saveWallets(); // Speichert nur kritische Wallets
+
+            // Prüfung auf Blockchain Reset (Angenommen, diese Methode existiert)
+            // checkAndResetChain();
+
+            BlockchainPersistence.saveBlockchain(blockchain);
+            WalletManager.saveWallets();
 
             return true;
         }

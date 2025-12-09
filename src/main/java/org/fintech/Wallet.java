@@ -5,7 +5,10 @@ import java.security.*;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 
 public class Wallet {
@@ -24,6 +27,14 @@ public class Wallet {
 
     private String privateKeyB64;
     private String publicKeyB64;
+
+    // 🌟 NEUE FELDER FÜR POSITIONSVERFOLGUNG
+    private double longPositionUsd = 0.0;
+    private double shortPositionUsd = 0.0;
+
+    // 🌟 NEUE FELDER FÜR ALLE TRANSAKTIONEN (wird in WalletManager.recalculateAllBalances gefüllt)
+    private transient List<Transaction> transactionHistory = new ArrayList<>();
+
 
     // 🌟 NEU: Hauptkonstruktor akzeptiert initialUsdBalance
     public Wallet(String password, double startingUsd) {
@@ -69,6 +80,10 @@ public class Wallet {
             if (this.balance > 0) {
                 usdBalance = 1000.0;
             }
+        }
+        // Initialisiert die Transaktionshistorie nach dem Laden, falls transient verloren ging
+        if (this.transactionHistory == null) {
+            this.transactionHistory = new CopyOnWriteArrayList<>();
         }
     }
 
@@ -143,6 +158,24 @@ public class Wallet {
     public String getPasswordHash() { return passwordHash; }
     public String getClearPassword() { return clearPassword; }
 
+    // GETTER/SETTER für Positionsverfolgung 🌟 NEU
+    public double getLongPositionUsd() { return longPositionUsd; }
+    public void setLongPositionUsd(double longPositionUsd) { this.longPositionUsd = longPositionUsd; }
+
+    public double getShortPositionUsd() { return shortPositionUsd; }
+    public void setShortPositionUsd(double shortPositionUsd) { this.shortPositionUsd = shortPositionUsd; }
+
+    // GETTER/SETTER für Transaktionshistorie 🌟 NEU
+    public List<Transaction> getTransactionHistory() {
+        if (transactionHistory == null) {
+            transactionHistory = new ArrayList<>();
+        }
+        return transactionHistory;
+    }
+    public void setTransactionHistory(List<Transaction> history) {
+        this.transactionHistory = history;
+    }
+
     // BALANCE (SC)
     public void credit(double amount) { this.balance += amount; }
     public void debit(double amount) { this.balance -= amount; }
@@ -162,8 +195,13 @@ public class Wallet {
         this.usdBalance = amount;
     }
 
-    public Transaction createTransaction(String recipient, double amount, String message) {
-        if (balance < amount) throw new RuntimeException("Nicht genug Guthaben (SC)! Benötigt: " + String.format("%.3f", amount) + " SC");
-        return new Transaction(this, recipient, amount, message);
+    public Transaction createTransaction(String recipient, double amount, String message, double priceAtExecution) {
+        boolean isShortSaleOrCover = recipient.equals(MyChainGUI.EXCHANGE_ADDRESS);
+        if (balance < amount && !isShortSaleOrCover) { // 🛑 PRÜFUNG ANGEPASST: Short-Sales erlauben negativen Saldo
+            System.err.println("WARNUNG: Wallet " + address + " versucht, mehr SC auszugeben als vorhanden.");
+            return null;
+        }
+        // Der neue Konstruktor in Transaction.java wird aufgerufen
+        return new Transaction(this, recipient, amount, message, priceAtExecution);
     }
 }

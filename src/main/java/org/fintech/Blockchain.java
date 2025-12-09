@@ -8,6 +8,24 @@ public class Blockchain {
     private final int difficulty;
     private final String name;
 
+    // 🛑 WICHTIG: Konstante für den Initialpreis (wird in PriceSimulator und Genesis Block verwendet)
+    private static final double INITIAL_PRICE = 0.1;
+
+    public int findBlockIndexByTransaction(Transaction targetTx) {
+        // Annahme: 'chain' ist die Liste von Blöcken in der Blockchain-Klasse
+        if (chain == null) return -1;
+
+        for (int i = 0; i < chain.size(); i++) {
+            Block block = chain.get(i);
+            // Prüft, ob die Transaktion anhand der eindeutigen TX-ID im Block existiert
+            if (block.getTransactions().stream().anyMatch(tx -> tx.getTxId().equals(targetTx.getTxId()))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // 🛑 Konstruktor für neue Kette (Genesis Block wird hier erstellt)
     public Blockchain(String name, int difficulty) {
         this.name = name;
         this.difficulty = difficulty;
@@ -16,8 +34,16 @@ public class Blockchain {
             Wallet supplyWallet = WalletManager.SUPPLY_WALLET;
 
             List<Transaction> genesisTxs = new ArrayList<>();
-            // 🌟 KORRIGIERT: 1.000.000.000.000.000 SC initiales Supply an die SUPPLY_WALLET
-            genesisTxs.add(new Transaction("system", supplyWallet.getAddress(), 1000000000000.0, "Genesis Supply – Ursprung der " + name + " Coins!"));
+            // Die Genesis-Transaktion nutzt den speziellen Konstruktor
+            // Transaction(String sender, String recipient, double amount, String message, double priceAtExecution)
+
+            genesisTxs.add(new Transaction(
+                    "system",
+                    supplyWallet.getAddress(),
+                    1000000000000.0,
+                    "Genesis Supply – Ursprung der " + name + " Coins!",
+                    INITIAL_PRICE // 🛑 Initialpreis wird übergeben
+            ));
 
             Block genesis = new Block(genesisTxs, "0");
             genesis.mineBlock(difficulty);
@@ -25,6 +51,7 @@ public class Blockchain {
             System.out.println("Genesis-Block erstellt. 1.000.000.000.000.000 SC an Supply Wallet: " + supplyWallet.getAddress().substring(0,16) + "...");
         }
     }
+
 
     public Blockchain(List<Block> loadedBlocks, String name, int difficulty) {
         this.name = name;
@@ -38,10 +65,12 @@ public class Blockchain {
         newBlock.mineBlock(difficulty);
         chain.add(newBlock);
     }
+
     public static int resets = 0;
+
     public void resetChain() {
         if (this.chain.size() > 1) {
-            // 🛑 WICHTIG: Entfernt alle Blöcke ab Index 1 (behält den Genesis Block bei Index 0)
+            // WICHTIG: Entfernt alle Blöcke ab Index 1 (behält den Genesis Block bei Index 0)
             resets++;
             this.chain.subList(1, this.chain.size()).clear();
             System.out.println("--- Kette zurückgesetzt. Alle Blöcke außer Genesis (#0) wurden gelöscht und die Kette wurde "+ resets+"x resettet. ---");
@@ -70,11 +99,12 @@ public class Blockchain {
             System.out.println(b);
             System.out.println("  Transaktionen:");
             for (Transaction tx : b.getTransactions()) {
-                System.out.printf("    • %.8s | %s... → %s... | %.2f Coins | %s%n",
+                System.out.printf("    • %.8s | %s... → %s... | %.2f Coins (P: %.4f) | %s%n", // 🛑 P: Preis HINZUGEFÜGT
                         tx.getTxId(),
                         tx.getSender().substring(0, 10),
                         tx.getRecipient().substring(0, 10),
                         tx.getAmount(),
+                        tx.getPriceAtExecution(), // 🛑 Preis abgerufen
                         tx.getMessage().isEmpty() ? "keine Nachricht" : tx.getMessage());
             }
             System.out.println();

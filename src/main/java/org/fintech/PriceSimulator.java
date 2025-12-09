@@ -35,6 +35,7 @@ public class PriceSimulator {
         }
         return defaultPrice;
     }
+
     /**
      * Simuliert den Einfluss eines Handels (Kauf oder Verkauf) auf den Preis.
      * @param amountSC Die gehandelte SC-Menge.
@@ -45,12 +46,14 @@ public class PriceSimulator {
 
         // --- NEUE PARAMETER FÜR INVERSE SKALIERUNG ---
         // Dieser Faktor muss sehr viel höher sein, da wir durch den Preis teilen.
-        final double VOLATILITY_FACTOR_NEW = 0.0000001; // 💡 Beispielwert, bitte anpassen!
+        final double VOLATILITY_FACTOR_NEW = 0.000005; // 💡 Beispielwert, bitte anpassen!
         // ----------------------------------------------
-        final double MAX_PRICE_CHANGE_PERCENT = 0.95;
+
+        // Maximale erlaubte Preisänderungen
+        final double MAX_PRICE_DROP_PERCENT = 0.95; // Maximaler Drop: 95%
+        final double MAX_PRICE_RISE_PERCENT = 2.00; // Maximaler Anstieg: 100% (Preis verdoppelt sich)
 
         // 🟢 NEUE LOGIK: Preisänderung ist INVERS zum aktuellen Preis.
-        // Große Preise = kleine absolute Änderung.
         double priceChange = (amountSC * VOLATILITY_FACTOR_NEW) / getCurrentPrice();
 
         if (!isBuy) {
@@ -62,29 +65,47 @@ public class PriceSimulator {
         // ----------------------------------------------------
         double potentialNewPrice = currentPrice + priceChange;
 
-        // Maximale erlaubte absolute Änderung (maximal 95% Drop)
-        double maxAllowedDrop = currentPrice * MAX_PRICE_CHANGE_PERCENT;
+        // --- 1. KONTROLLE: MAXIMALE PREISSTEIGERUNG (KAUF/LONG) ---
+        if (isBuy && priceChange > 0) {
+            double maxAllowedRise = currentPrice * MAX_PRICE_RISE_PERCENT;
 
-        // Prüfen, ob der Preis unter den maximal erlaubten Drop fällt (nur bei Verkauf)
-        if (!isBuy && priceChange < 0 && (currentPrice - Math.abs(priceChange)) < (currentPrice - maxAllowedDrop)) {
+            if (priceChange > maxAllowedRise) {
+                priceChange = maxAllowedRise;
 
-            // Um den Trade nicht vollständig abzulehnen, begrenzen wir den Drop auf das Maximum.
-            // Dies ist meistens besser als den Trade komplett zu blockieren.
-            priceChange = -maxAllowedDrop;
+                System.out.printf("⚠️ TRADE BEGRENZT: Kauf von %.3f SC auf maximalen Anstieg von %.2f%% begrenzt.%n",
+                        amountSC, (MAX_PRICE_RISE_PERCENT * 100));
 
-            System.out.printf("⚠️ TRADE BEGRENZT: Verkauf von %.3f SC auf maximalen Drop von %.2f%% begrenzt (statt berechnetem %.2f%%).%n",
-                    amountSC, (MAX_PRICE_CHANGE_PERCENT * 100), (Math.abs(priceChange) / currentPrice) * 100);
+                potentialNewPrice = currentPrice + priceChange;
+            }
+        }
 
-            potentialNewPrice = currentPrice + priceChange;
+        // --- 2. KONTROLLE: MAXIMALER PREISABFALL (VERKAUF/SHORT) ---
+        else if (!isBuy && priceChange < 0) {
+            double maxAllowedDrop = currentPrice * MAX_PRICE_DROP_PERCENT;
+
+            // Preisänderung ist negativ, daher vergleichen wir mit dem Betrag des Drops
+            if (Math.abs(priceChange) > maxAllowedDrop) {
+
+                // Begrenzen des Drops auf das Maximum (priceChange ist hier negativ)
+                priceChange = -maxAllowedDrop;
+
+                System.out.printf("⚠️ TRADE BEGRENZT: Verkauf von %.3f SC auf maximalen Drop von %.2f%% begrenzt.%n",
+                        amountSC, (MAX_PRICE_DROP_PERCENT * 100));
+
+                potentialNewPrice = currentPrice + priceChange;
+            }
         }
         // ----------------------------------------------------
 
-        // Preis aktualisieren (nur wenn der Trade nicht abgelehnt oder begrenzt wurde)
+        // Preis aktualisieren
         currentPrice = potentialNewPrice;
 
         // Sicherstellen, dass der Preis nicht negativ oder extrem niedrig wird
-        if (currentPrice < 0.01) {
-            currentPrice = 0.01;
+        if (currentPrice < 0.05) {
+            currentPrice = 0.05;
+            savePrice(currentPrice); // Speichern des Endpreises nach dem Trade
+        } else {
+            savePrice(currentPrice);
         }
     }
 

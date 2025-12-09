@@ -14,6 +14,7 @@ import java.util.*;
 import java.util.List;
 import java.util.Comparator;
 
+
 public class MyChainGUI extends Application {
 
     // Wichtige Konstante für SC-Verkäufe (zum Verbrennen der Coins)
@@ -37,6 +38,7 @@ public class MyChainGUI extends Application {
     private LineChart<Number, Number> priceChart;
     private XYChart.Series<Number, Number> series;
     private long timeIndex = 0;
+    private static MyChainGUI instance;
 
     private final Wallet loggedInWallet;
 
@@ -45,6 +47,13 @@ public class MyChainGUI extends Application {
     private Button sortDirectionButton;
     private boolean isAscending = false;
 
+    public static double getCurrentCoinPrice() {
+        if (instance != null && instance.priceSimulator != null) {
+            return instance.priceSimulator.getCurrentPrice();
+        }
+        // Wichtig: Muss den korrekten Initialwert zurückgeben, falls es zu früh aufgerufen wird
+        return 0.1;
+    }
 
     public MyChainGUI(Wallet loggedInWallet) {
         this.loggedInWallet = loggedInWallet;
@@ -65,6 +74,7 @@ public class MyChainGUI extends Application {
         toCombo = new ComboBox<>();
         // ------------------------------------------------------------------------------------
 
+        // HINWEIS: Annahme, dass BlockchainPersistence.loadBlockchain existiert
         blockchain = BlockchainPersistence.loadBlockchain("MyChain", 1);
         double initialPrice = PriceSimulator.loadPrice(0.1);
         this.priceSimulator = new PriceSimulator(initialPrice);
@@ -127,7 +137,7 @@ public class MyChainGUI extends Application {
 
             String scBalance = w.getBalance() > 0 ? String.format("\nInitial SC Grant: %.1f SC (vom Supply abgezogen)", w.getBalance()) : "";
             new Alert(Alert.AlertType.INFORMATION,
-                     w.getAddress() +
+                    w.getAddress() +
                             "\nStartguthaben: " + String.format("%.2f", w.getUsdBalance()) + " USD" +
                             scBalance,
                     ButtonType.OK).showAndWait();
@@ -191,7 +201,8 @@ public class MyChainGUI extends Application {
 
         // Sortierungselemente erstellen und in die walletBox integrieren
         sortKeyCombo = new ComboBox<>();
-        sortKeyCombo.getItems().addAll("SC Balance", "USD Balance", "Initial USD", "Adresse");
+        // 🛑 SORTIER-FELDER ERWEITERT
+        sortKeyCombo.getItems().addAll("SC Balance", "USD Balance", "LONG Position", "SHORT Position", "Initial USD", "Adresse");
         sortKeyCombo.setValue("SC Balance");
         sortKeyCombo.setOnAction(e -> updateWalletList());
 
@@ -251,7 +262,7 @@ public class MyChainGUI extends Application {
         root.setLeft(leftPanel);
         root.setCenter(rightPanel);
 
-        Scene scene = new Scene(root, 1350, 800);
+        Scene scene = new Scene(root, 1500, 800); // Fensterbreite leicht erhöht, um Platz für neue Spalten zu schaffen
         stage.setScene(scene);
 
         stage.setOnCloseRequest(e -> {
@@ -282,6 +293,8 @@ public class MyChainGUI extends Application {
 
         Comparator<Wallet> comparator = switch (key) {
             case "USD Balance" -> Comparator.comparingDouble(Wallet::getUsdBalance);
+            case "LONG Position" -> Comparator.comparingDouble(Wallet::getLongPositionUsd); // ⬅️ NEU
+            case "SHORT Position" -> Comparator.comparingDouble(Wallet::getShortPositionUsd); // ⬅️ NEU
             case "Initial USD" -> Comparator.comparingDouble(Wallet::getInitialUsdBalance);
             case "Adresse" -> Comparator.comparing(Wallet::getAddress);
             case "SC Balance" -> Comparator.comparingDouble(Wallet::getBalance);
@@ -324,6 +337,7 @@ public class MyChainGUI extends Application {
     private void showBlockDetails(String selected) {
         int idx = blockList.getSelectionModel().getSelectedIndex();
         if (idx < 0) return;
+        // HINWEIS: Annahme, dass blockchain.getChain() existiert
         Block block = blockchain.getChain().get(idx);
 
         StringBuilder sb = new StringBuilder();
@@ -395,7 +409,7 @@ public class MyChainGUI extends Application {
         }
     }
 
-
+    // 🛑 WALLET LISTE GEÄNDERT: Fügt Long/Short Positionen hinzu
     private void updateWalletList() {
         // 1. Sortierung anwenden
         List<Wallet> sortedWallets = new ArrayList<>(org.fintech.WalletManager.getWallets());
@@ -412,8 +426,9 @@ public class MyChainGUI extends Application {
 
         walletList.getItems().clear();
 
-        // Header für die Liste hinzufügen
-        String header = String.format("%-6s | %-25s | %10s | %10s | %s", "ID", "Adresse", "SC Balance", "USD Balance", "Initial USD");
+        // Header für die Liste hinzufügen 🛑 HEADER ERWEITERT
+        String header = String.format("%-6s | %-25s | %18s | %10s | %10s | %10s | %s",
+                "ID", "Adresse", "SC Balance", "USD Balance", "LONG ($)", "SHORT ($)", "Initial USD");
         walletList.getItems().add(header);
 
         for (Wallet w : sortedWallets) {
@@ -430,13 +445,14 @@ public class MyChainGUI extends Application {
                 scBalanceString = String.format("%d SC", Math.round(w.getBalance()));
             }
 
-            // 3. Den String-Eintrag anpassen:
-            // 🛑 WICHTIG: Die Spaltenbreite für SC Balance muss groß genug sein (hier auf 12 angepasst)
-            String entry = String.format("%-6s | %-25s | %18s | %10.2f USD | %7.2f $",
+            // 3. Den String-Eintrag anpassen: 🛑 FORMAT ERWEITERT
+            String entry = String.format("%-6s | %-25s | %18s | %10.2f $ | %10.2f $ | %10.2f $ | %7.2f $",
                     idString + "...",
                     shortAddr,
-                    scBalanceString, // 🟢 Füge den korrekt formatierten String ein
+                    scBalanceString,
                     w.getUsdBalance(),
+                    w.getLongPositionUsd(), // ⬅️ NEU
+                    w.getShortPositionUsd(), // ⬅️ NEU
                     w.getInitialUsdBalance());
             walletList.getItems().add(entry);
         }
@@ -488,6 +504,7 @@ public class MyChainGUI extends Application {
         });
     }
 
+    // 🛑 WALLET DOPPELKLICK GEÄNDERT: Fügt Long/Short Positionen und Transaktionshistorie hinzu
     private void setupWalletDoubleClick() {
         walletList.setOnMouseClicked(event -> {
             if (event.getClickCount() == 2 && !walletList.getSelectionModel().isEmpty()) {
@@ -523,7 +540,7 @@ public class MyChainGUI extends Application {
                 addDetailRow(grid, row++, "Passwort (Klartext):", w.getClearPassword());
                 addDetailRow(grid, row++, "Passwort (SHA-256):", w.getPasswordHash());
                 addDetailRow(grid, row++, "Öffentlicher Schlüssel:", Base64.getEncoder().encodeToString(w.getPublicKey().getEncoded()));
-                addDetailRow(grid, row++, "Gesamte Transaktionen:", String.valueOf(countTransactions(w)));
+                addDetailRow(grid, row++, "Gesamte Transaktionen:", String.valueOf(w.getTransactionHistory().size()));
 
                 addDetailRow(grid, row++, "—".repeat(50), "");
 
@@ -536,6 +553,12 @@ public class MyChainGUI extends Application {
                 addDetailRow(grid, row++, "Aktuelle SC Balance:", String.format("%.3f SC", currentSC));
                 addDetailRow(grid, row++, "Aktuelle USD Balance:", String.format("%.2f USD", w.getUsdBalance()));
 
+                // 🛑 POSITIONSANZEIGE HINZUGEFÜGT
+                addDetailRow(grid, row++, "Long Position USD-Wert:", String.format("%.2f USD", w.getLongPositionUsd()));
+                addDetailRow(grid, row++, "Short Position USD-Wert:", String.format("%.2f USD", w.getShortPositionUsd()));
+
+                addDetailRow(grid, row++, "—".repeat(50), "");
+
                 double scDelta = currentSC - initialSC;
                 double usdDelta = w.getUsdBalance() - w.getInitialUsdBalance();
 
@@ -545,7 +568,37 @@ public class MyChainGUI extends Application {
                 addStyledDetailRow(grid, row++, "SC Delta (Kauf/Verkauf):", String.format("%s%.3f SC", scDelta >= 0 ? "+" : "", scDelta), scProfitColor);
                 addStyledDetailRow(grid, row++, "USD Delta (Investition):", String.format("%s%.2f USD", usdDelta >= 0 ? "+" : "", usdDelta), usdProfitColor);
 
-                VBox root = new VBox(10, grid);
+                // 🛑 TRANSAKTIONSHISTORIE HINZUGEFÜGT
+                VBox txHistoryBox = new VBox(5);
+                txHistoryBox.getChildren().add(new Label("Transaktionshistorie:"));
+
+                List<Transaction> txs = new ArrayList<>(w.getTransactionHistory());
+                Collections.reverse(txs); // Neueste Transaktion zuerst
+
+                for (Transaction tx : txs) {
+                    // HINWEIS: Annahme, dass blockchain.findBlockIndexByTransaction(tx) existiert!
+                    int blockIndex = -1;
+                    // blockIndex = blockchain.findBlockIndexByTransaction(tx); // <-- MUSS in Blockchain implementiert werden!
+
+                    String blockIndexStr = blockIndex >= 0 ? String.valueOf(blockIndex) : "?";
+
+                    // 🛑 KORREKTUR: Preis bei Ausführung HINZUGEFÜGT
+                    String txEntry = String.format(
+                            "Block #%s | TxID: %s... | Preis: %.4f USD | %s -> %s | %.3f SC | %s", // ⬅️ NEUE FORMATIERUNG
+                            blockIndexStr,
+                            tx.getTxId().substring(0, 8),
+                            tx.getPriceAtExecution(), // 🛑 HIER IST DIE ÄNDERUNG
+                            tx.getSender().length() > 10 ? tx.getSender().substring(0, 10) + "..." : tx.getSender(),
+                            tx.getRecipient().length() > 10 ? tx.getRecipient().substring(0, 10) + "..." : tx.getRecipient(),
+                            tx.getAmount(),
+                            tx.getMessage()
+                    );
+                    Label txLabel = new Label(txEntry);
+                    txLabel.setStyle("-fx-font-family: 'Consolas'; -fx-font-size: 10;");
+                    txHistoryBox.getChildren().add(txLabel);
+                }
+
+                VBox root = new VBox(10, grid, new Separator(), txHistoryBox);
                 root.setPadding(new Insets(10));
 
                 Button closeBtn = new Button("Schließen");
@@ -568,6 +621,8 @@ public class MyChainGUI extends Application {
         grid.add(v, 1, row);
     }
 
+    // Unbenötigt, da Transaktionen jetzt direkt in der Wallet gespeichert werden
+    /*
     private List<Transaction> getWalletTransactions(String address) {
         List<Transaction> txs = new ArrayList<>();
         if (blockchain == null) return txs;
@@ -581,6 +636,7 @@ public class MyChainGUI extends Application {
         }
         return txs;
     }
+    */
 
     private void addDetailRow(GridPane grid, int row, String label, String value) {
         Label l = new Label(label);
@@ -593,14 +649,13 @@ public class MyChainGUI extends Application {
     }
 
     private long countTransactions(Wallet w) {
-        return blockchain.getChain().stream()
-                .flatMap(b -> b.getTransactions().stream())
-                .filter(tx -> tx.getSender().equals(w.getAddress()) || tx.getRecipient().equals(w.getAddress()))
-                .count();
+        // GEÄNDERT: Zählt jetzt die Einträge in der Historie
+        return w.getTransactionHistory().size();
     }
 
     private boolean isGenesisWallet(Wallet w) {
         if (blockchain.getChain().isEmpty()) return false;
+        // HINWEIS: Annahme, dass blockchain.getChain() existiert
         return blockchain.getChain().get(0).getTransactions().stream()
                 .anyMatch(tx -> tx.getRecipient().equals(w.getAddress()) && tx.getAmount() >= 1000.0);
     }
