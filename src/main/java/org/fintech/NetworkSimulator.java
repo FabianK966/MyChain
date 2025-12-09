@@ -24,11 +24,11 @@ public class NetworkSimulator {
     private Runnable onPriceUpdateCallback;
 
     // Konfiguration der Wallet-Generierung
-    private static final long MIN_WALLET_CREATION_PERIOD = 200;
+    private static final long MIN_WALLET_CREATION_PERIOD = 500;
     // 🛑 DELAY RESET: Muss beim Start neu gesetzt werden
-    private long currentWalletCreationPeriod = 1000;
+    private long currentWalletCreationPeriod = 2000;
     private final double periodMultiplier = 0.9;
-    private final int periodThreshold = 100;
+    private final int periodThreshold = 200;
 
     // Konfiguration der Marktstimmung
     private double buyBias = 0.50;
@@ -80,7 +80,7 @@ public class NetworkSimulator {
 
         // 🛑 NEUSTART-LOGIK: Setzt die Delays auf die Startwerte zurück
         currentTradeMinDelay = INITIAL_MIN_DELAY;
-        this.currentWalletCreationPeriod = 1000;
+        this.currentWalletCreationPeriod = 2000;
         // -----------------------------------------------------------------
 
         System.out.println("=== NETZWERK-SIMULATION GESTARTET ===");
