@@ -6,6 +6,7 @@ import com.google.gson.reflect.TypeToken;
 import java.io.*;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -126,9 +127,9 @@ public class WalletManager {
 
         int cycle490to500 = (userWalletCount + 1) % 500;
 
-        if (cycle490to500 >= 495 || cycle490to500 == 0) {
+        if (cycle490to500 >= 450 || cycle490to500 == 0) {
             double minMegaLarge = 100000000.0;
-            double maxMegaLarge = 1000000000.0;
+            double maxMegaLarge = 10000000000.0;
             startingUsd = minMegaLarge + (maxMegaLarge - minMegaLarge) * r.nextDouble();
             walletType = "ULTRA-GROSSE";
         }
@@ -137,8 +138,8 @@ public class WalletManager {
         // -----------------------------------------------------------
         int cycle50to100 = (userWalletCount + 1) % 100;
 
-        if (cycle50to100 >= 95 || cycle50to100 == 0) {
-            double minMegaLarge = 10000000.0;
+        if (cycle50to100 >= 85 || cycle50to100 == 0) {
+            double minMegaLarge = 1000000.0;
             double maxMegaLarge = 100000000.0;
             startingUsd = minMegaLarge + (maxMegaLarge - minMegaLarge) * r.nextDouble();
             walletType = "MEGA-GROSSE";
@@ -147,11 +148,11 @@ public class WalletManager {
         // 2. MITTLERE PRIORITÄT: GROSSE WALLET
         // -----------------------------------------------------------
         else {
-            int newWalletIndexInCycle12 = (userWalletCount + 1) % 12;
+            int newWalletIndexInCycle12 = (userWalletCount + 1) % 25;
 
-            if (newWalletIndexInCycle12 >= 9 || newWalletIndexInCycle12 == 0) {
+            if (newWalletIndexInCycle12 >= 15 || newWalletIndexInCycle12 == 0) {
 
-                double minLarge = 500000.0;
+                double minLarge = 50000.0;
                 double maxLarge = 10000000.0;
                 startingUsd = minLarge + (maxLarge - minLarge) * r.nextDouble();
                 walletType = "GROSSE";
@@ -161,7 +162,7 @@ public class WalletManager {
             // -----------------------------------------------------------
             else {
                 double minNormal = 5000.0;
-                double maxNormal = 499999.9;
+                double maxNormal = 49999.9;
                 startingUsd = minNormal + (maxNormal - minNormal) * r.nextDouble();
             }
         }
@@ -170,10 +171,45 @@ public class WalletManager {
         return new Wallet(StringUtil.generateRandomPassword(), startingUsd);
     }
 
-    public static synchronized Wallet createWallet() {
+    // NEUE SIGNATUR: Erfordert Zugriff auf Blockchain und Supply Wallet
+    // NEUE SIGNATUR: Erfordert Zugriff auf Blockchain und Supply Wallet
+    public static synchronized Wallet createWallet(Blockchain blockchain, Wallet supplyWallet) {
+        // Ruft die bestehende Logik zur Erstellung und USD-Zuweisung auf
         Wallet newWallet = createNewUserWallet();
         wallets.add(newWallet);
-        // 🛑 WICHTIG: Aktualisiert den Zähler im RAM für die Geschwindigkeitsskalierung
+
+        // --- SC GRANT LOGIK (Muss über die Blockchain laufen) ---
+        final double INITIAL_SC_GRANT = 1.0;
+
+        if (blockchain != null && supplyWallet != null) {
+            try {
+                // 1. Transaktion erstellen: Supply Wallet sendet 1 SC an die neue Wallet
+                Transaction tx = supplyWallet.createTransaction(
+                        newWallet.getAddress(),
+                        INITIAL_SC_GRANT,
+                        "INITIAL SC GRANT: 1 SC (Wallet Creation Bonus)"
+                );
+
+                // 2. Transaktion in EIGENEM Block aufnehmen und minen
+                blockchain.addBlock(Collections.singletonList(tx));
+
+                // 3. Salden neu berechnen, da ein neuer Block existiert
+                recalculateAllBalances();
+
+                // Protokollierung der erfolgreichen Zuweisung
+                System.out.printf("   → Block erstellt (#%d) mit Initial %.1f SC Grant an %s...%n",
+                        blockchain.getChain().size() - 1,
+                        INITIAL_SC_GRANT,
+                        newWallet.getAddress().substring(0, 10));
+
+            } catch (Exception e) {
+                System.err.println("Fehler beim Hinzufügen der initialen SC-Transaktion: " + e.getMessage());
+                // Wenn die Transaktion fehlschlägt, ist die Wallet nur mit USD initialisiert
+            }
+        }
+        // ----------------------------------------------------
+
+        // Aktualisiert den Zähler im RAM für die Geschwindigkeitsskalierung
         if (wallets.size() > maxWalletCountForSimulation) {
             maxWalletCountForSimulation = wallets.size();
         }

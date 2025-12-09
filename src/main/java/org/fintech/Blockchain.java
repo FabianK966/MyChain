@@ -22,7 +22,7 @@ public class Blockchain {
             Block genesis = new Block(genesisTxs, "0");
             genesis.mineBlock(difficulty);
             chain.add(genesis);
-            System.out.println("Genesis-Block erstellt. 10.000.000.000 SC an Supply Wallet: " + supplyWallet.getAddress().substring(0,16) + "...");
+            System.out.println("Genesis-Block erstellt. 1.000.000.000.000.000 SC an Supply Wallet: " + supplyWallet.getAddress().substring(0,16) + "...");
         }
     }
 
@@ -32,18 +32,19 @@ public class Blockchain {
         this.chain.addAll(loadedBlocks);
     }
 
-    public void addBlock(List<Transaction> transactions) {
+    public synchronized void addBlock(List<Transaction> transactions) {
         Block last = chain.get(chain.size() - 1);
         Block newBlock = new Block(transactions, last.getHash());
         newBlock.mineBlock(difficulty);
         chain.add(newBlock);
     }
-
+    public static int resets = 0;
     public void resetChain() {
         if (this.chain.size() > 1) {
             // 🛑 WICHTIG: Entfernt alle Blöcke ab Index 1 (behält den Genesis Block bei Index 0)
+            resets++;
             this.chain.subList(1, this.chain.size()).clear();
-            System.out.println("--- Kette zurückgesetzt. Alle Blöcke außer Genesis (#0) wurden gelöscht. ---");
+            System.out.println("--- Kette zurückgesetzt. Alle Blöcke außer Genesis (#0) wurden gelöscht und die Kette wurde "+ resets+"x resettet. ---");
         } else if (this.chain.size() == 1) {
             System.out.println("--- Kette enthält nur den Genesis Block. Keine Aktion erforderlich. ---");
         } else {

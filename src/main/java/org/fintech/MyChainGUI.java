@@ -89,7 +89,7 @@ public class MyChainGUI extends Application {
         BorderPane root = new BorderPane();
         root.setPadding(new Insets(15));
 
-        currentPriceLabel = new Label("SC Preis: 0.1 USD");
+        currentPriceLabel = new Label("SC Preis: 0.10 USD");
         currentPriceLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 1.2em; -fx-padding: 0 0 10 0;");
 
         HBox topControls = new HBox(10);
@@ -104,7 +104,7 @@ public class MyChainGUI extends Application {
             if (newVal != null) showBlockDetails(newVal);
         });
 
-        VBox leftPanel = new VBox(10, new Label("Blöcke in der Chain:"), blockList);
+        VBox leftPanel = new VBox(10, new Label("Blöcke in der Chain:+"),  blockList);
 
         detailsArea = new TextArea();
         detailsArea.setEditable(false);
@@ -120,7 +120,7 @@ public class MyChainGUI extends Application {
         Button newWalletBtn = new Button("Neue Wallet erstellen");
         newWalletBtn.setStyle("-fx-background-color: #2196F3; -fx-text-fill: white; -fx-font-weight: bold; -fx-padding: 10;");
         newWalletBtn.setOnAction(e -> {
-            Wallet w = org.fintech.WalletManager.createWallet();
+            Wallet w = org.fintech.WalletManager.createWallet(blockchain, org.fintech.WalletManager.SUPPLY_WALLET);
 
             updateWalletList();
             updateComboBoxes();
@@ -303,15 +303,7 @@ public class MyChainGUI extends Application {
             primaryStage.close();
         }
 
-        Platform.runLater(() -> {
-            try {
-                // Annahme: LoginGUI existiert
-                new LoginGUI().start(new Stage());
-            } catch (Exception e) {
-                System.err.println("Fehler beim Neustart der LoginGUI: " + e.getMessage());
-                e.printStackTrace();
-            }
-        });
+
     }
 
     private void updatePriceLabel() {
@@ -394,10 +386,10 @@ public class MyChainGUI extends Application {
             series.getData().add(new XYChart.Data<>(timeIndex, currentPrice));
 
             // Optional: Hält das Chart auf die letzten 100 Punkte begrenzt
-            if (series.getData().size() > 100) {
+            if (series.getData().size() > 1000) {
                 series.getData().remove(0);
                 // Die Achse muss neu skaliert werden, damit der Zeitindex bei 0 beginnt (visuell)
-                ((NumberAxis) priceChart.getXAxis()).setLowerBound(timeIndex - 100);
+                ((NumberAxis) priceChart.getXAxis()).setLowerBound(timeIndex - 1000);
                 ((NumberAxis) priceChart.getXAxis()).setUpperBound(timeIndex);
             }
         }
@@ -409,9 +401,9 @@ public class MyChainGUI extends Application {
         List<Wallet> sortedWallets = new ArrayList<>(org.fintech.WalletManager.getWallets());
 
         if (sortKeyCombo != null && sortKeyCombo.getValue() != null) {
+            // Die Sortierung nutzt weiterhin den echten Dezimalwert, was korrekt ist.
             sortedWallets.sort(getWalletComparator());
         }
-
         // 2. Reichste Wallet finden (zur Hervorhebung, basierend auf SC)
         Wallet richestUser = sortedWallets.stream()
                 .filter(w -> !w.getAddress().equals(org.fintech.WalletManager.SUPPLY_WALLET.getAddress()))
@@ -428,15 +420,22 @@ public class MyChainGUI extends Application {
             String idString = String.valueOf(w.getUniqueId());
             String shortAddr = w.getAddress().substring(0, Math.min(25, w.getAddress().length())) + "...";
 
-            // 🌟 1. Rundung anwenden:
-            long roundedScBalance = Math.round(w.getBalance());
-            String scBalanceString = String.format("%d SC", roundedScBalance); // 🌟 2. Formatierung ohne Dezimalstellen
+            // 🟢 NEUE, ROBUSTER FORMATIERUNG DER SC-BALANCE (Korrektur des Rundungsproblems)
+            String scBalanceString;
+            if (w.getBalance() < 1.0 && w.getBalance() > 0.0) {
+                // Zeigt kleine, nicht-ganzzahlige Beträge präziser an (z.B. 0.123 SC)
+                scBalanceString = String.format("%.3f SC", w.getBalance());
+            } else {
+                // Zeigt größere Beträge ohne Dezimalstellen an (z.B. 100 SC)
+                scBalanceString = String.format("%d SC", Math.round(w.getBalance()));
+            }
 
             // 3. Den String-Eintrag anpassen:
-            String entry = String.format("%-6s | %-25s | %10s | %10.2f USD | %7.2f $", // 🛑 '%10.3f SC' wird zu '%10s'
+            // 🛑 WICHTIG: Die Spaltenbreite für SC Balance muss groß genug sein (hier auf 12 angepasst)
+            String entry = String.format("%-6s | %-25s | %18s | %10.2f USD | %7.2f $",
                     idString + "...",
                     shortAddr,
-                    scBalanceString, // 🌟 Füge den gerundeten String ein
+                    scBalanceString, // 🟢 Füge den korrekt formatierten String ein
                     w.getUsdBalance(),
                     w.getInitialUsdBalance());
             walletList.getItems().add(entry);

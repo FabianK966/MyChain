@@ -9,6 +9,7 @@ public class PriceSimulator {
     private static final String PRICE_FILE = "price.txt";
 
     public PriceSimulator(double initialPrice) {
+        // Initialer Preis sollte geladen werden, falls vorhanden
         this.currentPrice = initialPrice;
     }
 
@@ -30,50 +31,55 @@ public class PriceSimulator {
                 }
             } catch (java.io.IOException | NumberFormatException e) {
                 System.err.println("Fehler beim Laden oder Parsen des Preises: " + e.getMessage());
-                // Fallback auf den Standardwert bei Fehler
             }
         }
         return defaultPrice;
     }
     /**
      * Simuliert den Einfluss eines Handels (Kauf oder Verkauf) auf den Preis.
-     * @param amount Die gehandelte SC-Menge.
-     * @param isBuy True, wenn SC gekauft wird (erhöht Nachfrage/Preis); False, wenn SC verkauft wird (erhöht Angebot/senkt Preis).
+     * @param amountSC Die gehandelte SC-Menge.
+     * @param isBuy True, wenn SC gekauft wird; False, wenn SC verkauft wird.
      */
     public void executeTrade(double amountSC, boolean isBuy) {
         if (amountSC <= 0) return;
 
-        // Standard-Parameter (können in den Feldern definiert sein)
-        final double VOLATILITY_FACTOR = 0.00001; // Beispielwert
-        final double MAX_PRICE_CHANGE_PERCENT = 0.75;  // 🛑 50% Limit
+        // --- NEUE PARAMETER FÜR INVERSE SKALIERUNG ---
+        // Dieser Faktor muss sehr viel höher sein, da wir durch den Preis teilen.
+        final double VOLATILITY_FACTOR_NEW = 0.0000001; // 💡 Beispielwert, bitte anpassen!
+        // ----------------------------------------------
+        final double MAX_PRICE_CHANGE_PERCENT = 0.95;
 
-        // Berechnen der Preisänderung basierend auf Handelsvolumen
-        double priceChange = amountSC * VOLATILITY_FACTOR * getCurrentPrice();
+        // 🟢 NEUE LOGIK: Preisänderung ist INVERS zum aktuellen Preis.
+        // Große Preise = kleine absolute Änderung.
+        double priceChange = (amountSC * VOLATILITY_FACTOR_NEW) / getCurrentPrice();
 
         if (!isBuy) {
             priceChange *= -1; // Bei Verkauf wird der Preis gesenkt
         }
 
         // ----------------------------------------------------
-        // 🛑 NEUE KONTROLL-LOGIK (50%-Limit)
+        // 🛑 KONTROLL-LOGIK (Limit)
         // ----------------------------------------------------
         double potentialNewPrice = currentPrice + priceChange;
 
-        // Maximale erlaubte Preisänderung (absolut)
+        // Maximale erlaubte absolute Änderung (maximal 95% Drop)
         double maxAllowedDrop = currentPrice * MAX_PRICE_CHANGE_PERCENT;
 
-        // Prüfen, ob die Preisänderung das 50%-Limit überschreitet
-        if (!isBuy && priceChange < 0 && Math.abs(priceChange) > maxAllowedDrop) {
+        // Prüfen, ob der Preis unter den maximal erlaubten Drop fällt (nur bei Verkauf)
+        if (!isBuy && priceChange < 0 && (currentPrice - Math.abs(priceChange)) < (currentPrice - maxAllowedDrop)) {
 
-            System.out.printf("🚨 TRADE ABGELEHNT: Verkauf von %.3f SC würde Preis um %.2f%% droppen (Limit 50.00%%).%n",
-                    amountSC, (Math.abs(priceChange) / currentPrice) * 100);
+            // Um den Trade nicht vollständig abzulehnen, begrenzen wir den Drop auf das Maximum.
+            // Dies ist meistens besser als den Trade komplett zu blockieren.
+            priceChange = -maxAllowedDrop;
 
-            // Den Trade blockieren, indem die Methode beendet wird, ohne den Preis zu ändern.
-            return;
+            System.out.printf("⚠️ TRADE BEGRENZT: Verkauf von %.3f SC auf maximalen Drop von %.2f%% begrenzt (statt berechnetem %.2f%%).%n",
+                    amountSC, (MAX_PRICE_CHANGE_PERCENT * 100), (Math.abs(priceChange) / currentPrice) * 100);
+
+            potentialNewPrice = currentPrice + priceChange;
         }
         // ----------------------------------------------------
 
-        // Preis aktualisieren (nur wenn der Trade nicht abgelehnt wurde)
+        // Preis aktualisieren (nur wenn der Trade nicht abgelehnt oder begrenzt wurde)
         currentPrice = potentialNewPrice;
 
         // Sicherstellen, dass der Preis nicht negativ oder extrem niedrig wird
