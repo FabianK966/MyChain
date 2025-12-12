@@ -12,7 +12,7 @@ public class Blockchain {
     private final String name;
 
     // 🛑 WICHTIG: Konstante für den Initialpreis (wird in PriceSimulator und Genesis Block verwendet)
-    private static final double INITIAL_PRICE = 0.1;
+    private static final double INITIAL_PRICE = 0.01;
 
     public int findBlockIndexByTransaction(Transaction targetTx) {
         // Annahme: 'chain' ist die Liste von Blöcken in der Blockchain-Klasse

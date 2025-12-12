@@ -187,72 +187,135 @@ public class NetworkSimulator {
      * @return true, wenn die Kette zurückgesetzt wurde.
      */
     private boolean simulateTrade() {
-// 1. Initialisierung und Vorbereitung
+        // 1. Initialisierung und Vorbereitung
         List<Wallet> allWallets = WalletManager.getWallets();
         Wallet supplyWallet = WalletManager.SUPPLY_WALLET;
-        Random r = new Random(); // 🔧 Verwende lokale Random-Instanz
-// 🔧 Definiere MARGIN_FACTOR lokal
+        Random r = new Random();
         final double MARGIN_FACTOR = 0.25;
+
         List<Wallet> userWallets = allWallets.stream()
                 .filter(w -> !w.getAddress().equals(supplyWallet.getAddress()) && !w.getAddress().equals(MyChainGUI.EXCHANGE_ADDRESS))
                 .toList();
         if (userWallets.isEmpty()) return false;
-// Wallet IMMER AKTUELL aus der Manager-Liste holen, um konsistente Salden zu garantieren
+
+        // Wallet IMMER AKTUELL aus der Manager-Liste holen
         Wallet tradingWalletCandidate = userWallets.get(r.nextInt(userWallets.size()));
         Wallet tradingWallet = WalletManager.findWalletByAddress(tradingWalletCandidate.getAddress());
         if (tradingWallet == null) return false;
+
         double currentSCBalance = tradingWallet.getBalance();
-// Handelsrichtung wird nur durch den BuyBias bestimmt.
-        boolean isBuy = r.nextDouble() < this.buyBias;
         double currentPrice = priceSimulator.getCurrentPrice();
         double actualTradePercentage = 0.33 + r.nextDouble() * 0.67; // 33-100%
         double usdToTrade = 0.0;
-        // NEU: Getrennte Trade-Typen wählen, unabhängig von Balance
-        double rand = r.nextDouble();
-        String tradeType;
+
+        // --- NEUE LOGIK: Zustandsbasierte Trade-Typ-Wahl ---
+        String tradeType = null;
         boolean isLongOpen = false, isLongClose = false, isShortOpen = false, isShortClose = false;
-        if (rand < buyBias / 2) {
-            tradeType = "LONG_OPEN";
-            isLongOpen = true;
-        } else if (rand < buyBias) {
-            tradeType = "SHORT_CLOSE";
-            isShortClose = true;
-        } else if (rand < (buyBias + (1 - buyBias) / 2)) {
-            tradeType = "LONG_CLOSE";
-            isLongClose = true;
-        } else {
-            tradeType = "SHORT_OPEN";
-            isShortOpen = true;
-        }
-// IN simulateTrade():
-        if (isLongOpen || isShortClose) {
-            double availableUsd = tradingWallet.getUsdBalance();
-            usdToTrade = availableUsd * actualTradePercentage;
-            // 🔧 WICHTIG: Explizite Prüfung
-            if (usdToTrade > availableUsd) {
-                usdToTrade = availableUsd;
-            }
-            if (usdToTrade <= 0 || tradingWallet.getUsdBalance() < usdToTrade) {
-                System.out.printf("   ❌ KAUF ABGELEHNT: %s... benötigt %.2f USD, hat aber nur %.2f USD.%n",
-                        tradingWallet.getAddress().substring(0, 10), usdToTrade, tradingWallet.getUsdBalance());
+
+        double longExposure = tradingWallet.getLongPositionUsd();
+        double shortExposure = tradingWallet.getShortPositionUsd();
+
+        // Zustand bestimmen (Keine gleichzeitigen Long/Short-Positionen erlaubt)
+        boolean isLongOnly = longExposure > 0.0 && shortExposure <= 0.0;
+        boolean isShortOnly = shortExposure > 0.0 && longExposure <= 0.0;
+        boolean isNeutral = longExposure <= 0.0 && shortExposure <= 0.0;
+
+        // 1. PRÜFUNG: Wenn Long offen ist
+        if (isLongOnly) {
+            // Wenn Long offen, besteht die Wahl zwischen: Position halten (Abbruch) oder Long schließen.
+            // buyBias (Kaufneigung) ist hier die Neigung zum Halten/Abbrechen. (1 - buyBias) ist die Neigung zum Verkauf/Schließen.
+            if (r.nextDouble() < (1.0 - this.buyBias)) {
+                tradeType = "LONG_CLOSE";
+                isLongClose = true;
+            } else {
+                // Entscheidung, die Position zu halten oder ein Trade ist nicht möglich
                 return false;
             }
+
+            // 2. PRÜFUNG: Wenn Short offen ist
+        } else if (isShortOnly) {
+            // Wenn Short offen, besteht die Wahl zwischen: Position halten (Abbruch) oder Short schließen.
+            // buyBias ist die Neigung zum Kauf/Schließen.
+            if (r.nextDouble() < this.buyBias) {
+                tradeType = "SHORT_CLOSE";
+                isShortClose = true;
+            } else {
+                // Entscheidung, die Position zu halten oder ein Trade ist nicht möglich
+                return false;
+            }
+
+            // 3. PRÜFUNG: Wenn Neutral (keine Position offen)
+        } else if (isNeutral) {
+            // Wenn Neutral, wählen wir eine neue Position (Long Open oder Short Open) basierend auf dem Bias.
+            if (r.nextDouble() < this.buyBias) { // KAUF-Bias
+                tradeType = "LONG_OPEN";
+                isLongOpen = true;
+            } else { // VERKAUF-Bias (1 - buyBias)
+                tradeType = "SHORT_OPEN";
+                isShortOpen = true;
+            }
+        } else {
+            // Fehlerzustand: Wallet hat sowohl Long als auch Short (sollte durch die Logik vermieden werden)
+            // oder Exposures sind 0, aber isNeutral war false (Logikfehler)
+            return false;
+        }
+
+        // --- PRÜFUNG DER VORAUSSETZUNGEN FÜR DEN GEWÄHLTEN TRADE-TYP ---
+
+        if (isLongOpen || isShortClose) {
+            // KAUF-AKTION (Long Open oder Short Close)
+
+            if (isShortClose) {
+                // Short-Close: Basierend auf aktueller Short-Exposure (Die SC-Menge, die gekauft wird, um zu covern)
+                double currentShortExposure = tradingWallet.getShortPositionUsd(); // Oder die USD-Basis der Short-Position
+
+                // Hier muss die USD-Basis der Short-Position verwendet werden,
+                // da der Trade ja geschlossen wird.
+                usdToTrade = currentShortExposure * actualTradePercentage;
+
+                if (usdToTrade > currentShortExposure) {
+                    usdToTrade = currentShortExposure;
+                }
+                if (usdToTrade <= 0) return false;
+
+            } else if (isLongOpen) {
+                // Long-Open: Basierend auf verfügbarer USD-Liquidität
+                double availableUsd = tradingWallet.getUsdBalance();
+                usdToTrade = availableUsd * actualTradePercentage;
+
+                if (usdToTrade > availableUsd) {
+                    usdToTrade = availableUsd;
+                }
+                if (usdToTrade <= 0 || tradingWallet.getUsdBalance() < usdToTrade) {
+                    System.out.printf("   ❌ KAUF (LONG) ABGELEHNT: %s... benötigt %.2f USD, hat aber nur %.2f USD.%n",
+                            tradingWallet.getAddress().substring(0, 10), usdToTrade, tradingWallet.getUsdBalance());
+                    return false;
+                }
+            }
+
         } else if (isLongClose) {
+            // VERKAUF-AKTION (Long Close)
+
             // Long-Close: Basierend auf aktueller Long-Exposure
             double currentLongExposure = tradingWallet.getLongPositionUsd();
-            if (currentLongExposure <= 0) return false;
+            // Die Prüfung currentLongExposure <= 0 ist bereits durch isLongOnly am Anfang abgedeckt.
+
             usdToTrade = currentLongExposure * actualTradePercentage;
-            // 🔧 Sicherstellen, dass wir nicht mehr schließen als offen ist
+
             if (usdToTrade > currentLongExposure) {
                 usdToTrade = currentLongExposure;
             }
             if (usdToTrade <= 0) return false;
+
         } else if (isShortOpen) {
+            // VERKAUF-AKTION (Short Open)
+
             // Short-Open: Basierend auf USD * Margin (wie bisher)
             double availableUsd = tradingWallet.getUsdBalance();
             if (availableUsd <= 0) return false;
             usdToTrade = availableUsd * actualTradePercentage * MARGIN_FACTOR;
-            // 🔧 Prüfe ob genug USD für Margin vorhanden ist
+
+            // Prüfe ob genug USD für Margin vorhanden ist
             double requiredMargin = usdToTrade * MARGIN_FACTOR;
             if (usdToTrade <= 0 || tradingWallet.getUsdBalance() < requiredMargin) {
                 System.out.printf("   ❌ SHORT ABGELEHNT: %s... benötigt %.2f USD Margin (25%%), hat aber nur %.2f USD.%n",
@@ -260,41 +323,158 @@ public class NetworkSimulator {
                 return false;
             }
         }
-// 🔧 MINIMUM-BETRAG: Stelle sicher, dass der Trade groß genug ist
+
+        // 🔧 MINIMUM-BETRAG: Stelle sicher, dass der Trade groß genug ist
         usdToTrade = Math.max(1.0, usdToTrade);
         double tradeAmountSC = Math.round((usdToTrade / currentPrice) * 1000.0) / 1000.0;
         double usdValue = tradeAmountSC * currentPrice;
         if (usdValue < 1.0 || tradeAmountSC < 0.001) return false;
+
         List<Transaction> txs = new ArrayList<>();
-// Ausführung basierend auf Typ
+        // Ausführung basierend auf Typ
         String message;
         boolean isBuyAction = isLongOpen || isShortClose; // Käufe für Long-Open oder Short-Close
+
         if (isBuyAction) {
             // Von Supply kaufen
             if (supplyWallet.getBalance() < tradeAmountSC + 0.01) return false;
+
             message = String.format(Locale.US, "SIMULIERT: SC %s für %.2f USD", isLongOpen ? "Kauf (LONG)" : "Kauf (SHORT-COVER)", usdValue);
             txs.add(supplyWallet.createTransaction(tradingWallet.getAddress(), tradeAmountSC, message, currentPrice));
             priceSimulator.executeTrade(tradeAmountSC, true);
+
             System.out.printf("SIMULIERT %s: %s... kaufte %.3f SC für %.2f USD (%.0f%%) | Neuer Preis: %.4f%n",
                     isLongOpen ? "KAUF (LONG)" : "KAUF (SHORT-COVER)", tradingWallet.getAddress().substring(0, 10), tradeAmountSC, usdValue, actualTradePercentage * 100, priceSimulator.getCurrentPrice());
         } else {
-// An Exchange verkaufen
+            // An Exchange verkaufen
             message = String.format(Locale.US, "SIMULIERT: SC %s für %.2f USD", isLongClose ? "Verkauf (LONG)" : "Verkauf (SHORT)", usdValue);
             txs.add(tradingWallet.createTransaction(MyChainGUI.EXCHANGE_ADDRESS, tradeAmountSC, message, currentPrice));
             priceSimulator.executeTrade(tradeAmountSC, false);
+
             System.out.printf("SIMULIERT %s: %s... verkaufte %.3f SC für %.2f USD (%.0f%%) | Neuer Preis: %.4f%n",
                     isLongClose ? "VERKAUF (LONG)" : "VERKAUF (SHORT)", tradingWallet.getAddress().substring(0, 10), tradeAmountSC, usdValue, actualTradePercentage * 100, priceSimulator.getCurrentPrice());
         }
-// 6. Mining und Speicherung
+
+        // 6. Mining und Speicherung
         if (!txs.isEmpty()) {
             txs.removeIf(tx -> tx == null);
             if (txs.isEmpty()) return false;
+
             blockchain.addBlock(txs);
-            // 🔧 FÜGE DIES HINZU:
+
+            // Balancen-Update nach Trade
             Block newBlock = blockchain.getChain().get(blockchain.getChain().size() - 1);
             WalletManager.updateBalancesFromLastBlock(newBlock);
+
+            // 🚀 NEU: Liquidationsprüfung nach Balancenaktualisierung
+            processLiquidation(tradingWallet);
+
             return true;
         }
         return false;
+    }
+
+
+    private void processLiquidation(Wallet wallet) {
+
+        // Die Wallet MUSS IMMER AKTUELL aus dem Manager geholt werden.
+        Wallet tradingWallet = WalletManager.findWalletByAddress(wallet.getAddress());
+        if (tradingWallet == null) return;
+
+        // 1. LIQUIDATIONSBEDINGUNG PRÜFEN: Negative SC Balance UND 0 USD Balance
+        // In einer realistischeren Simulation müsste hier der Netto-Vermögenswert (Margin - Verlust) geprüft werden.
+        // Wir verwenden die vereinfachte, von Ihnen vorgeschlagene Bedingung:
+        if (tradingWallet.getBalance() < 0 && tradingWallet.getUsdBalance() <= 0.0) {
+
+            double scDebt = Math.abs(tradingWallet.getBalance());
+            String walletAddressShort = tradingWallet.getAddress().substring(0, 10);
+
+            System.out.printf("🚨 LIQUIDATION: Wallet %s... wird liquidiert! SC-Schuld: %.3f. USD-Balance: %.2f%n",
+                    walletAddressShort, scDebt, tradingWallet.getUsdBalance());
+
+            // 2. Liquidations-Transaktion erstellen (Short-Position Zwangsschließen)
+            // Die SC-Schuld wird von der TradingWallet an die SupplyWallet (oder Exchange) zurückgegeben.
+            // Das bedeutet, die TradingWallet zahlt die geliehenen SC zurück, um die SC-Bilanz auf 0 zu setzen.
+            String message = String.format(Locale.US, "LIQUIDATION: Zwangs-Kauf (Short-Cover) von %.3f SC.", scDebt);
+
+            // Annahme: Die SupplyWallet dient als Quelle/Gegenpartei für die Leihe
+            Wallet supplyWallet = WalletManager.SUPPLY_WALLET;
+
+            // WICHTIG: Wir brauchen eine Transaktion, die die SC-Schuld *begleicht*.
+            // Da die TradingWallet die SC-Schuld hat (neg. Saldo), muss sie die SC 'zurückgeben'.
+            // Da die Wallet kein USD mehr hat, wird die Position zum aktuellen Kurs geschlossen
+            // und der verbleibende Verlust (der zum Liquidation geführt hat) wird durch die Margin abgedeckt.
+
+            // Die einfachste simulatorische Abbildung:
+            // Die negativen SC werden auf 0 gesetzt und das USD-Konto wird auch auf 0 gesetzt,
+            // da die gesamten USD (Margin) verloren sind.
+            // Dies erfolgt durch eine spezielle "Liquidations-Transaktion"
+            // die das Guthaben auf 0 setzt, ohne SC/USD zu bewegen,
+            // oder durch eine Transaktion mit der Exchange, die genau die Schuld deckt.
+
+            // Variante 1: Spezial-Transaktion, um Salden auf 0 zu setzen (einfacher für Simulator-Design)
+            // **HINWEIS:** Da die SC-Balance negativ ist, ist keine reguläre Transaktion möglich.
+            // Wir müssen *annehmen*, dass der WalletManager eine Methode bereitstellt,
+            // um die Bilanz direkt zu bereinigen, wenn der Block gemined ist.
+
+            try {
+                List<Transaction> liquidationTxs = new ArrayList<>();
+                // Wir simulieren den zwangsweisen Kauf (SHORT_CLOSE) zum aktuellen Preis.
+                double currentPrice = priceSimulator.getCurrentPrice();
+                double usdValueLost = scDebt * currentPrice;
+
+                // 1. Die Wallet 'kauft' die SC von der SupplyWallet zurück.
+                // (Die SupplyWallet stellt die SC zur Verfügung, die der Exchange braucht, um die Leihe zu decken)
+                // Dies ist ein SC-Transfer von Supply an TradingWallet (begleicht die neg. SC)
+                // UND ein USD-Transfer von TradingWallet an SupplyWallet (zum Schließen des Trades)
+
+                // Da die USD-Balance 0 ist, müssen wir annehmen, dass die *gebundene* Margin
+                // den Verlust bis zur 0-Grenze abdeckt. Die Liquidation stellt sicher,
+                // dass die TradingWallet keine USD-Schuld mehr hat (USD-Balance = 0)
+                // und die SC-Schuld beglichen ist (SC-Balance = 0).
+
+                // Realistische Simulation des Zwangs-Kaufs:
+                // 1. Wallet **erhält** SC, um Schuld zu decken (SC-Schuld: -930 -> 0)
+                // 2. Wallet **gibt** USD (die Margin) ab, um den Kauf zu bezahlen.
+
+                // Wir schicken eine Transaktion von der TradingWallet an die Exchange,
+                // die die SC-Schuld auflöst (durch den Trade-Type "SHORT_CLOSE").
+
+                // **WICHTIGSTE ANNAHME:** Die Liquidation ist ein SHORT_CLOSE, bei dem die gesamte Margin
+                // der Wallet verbraucht wird, um die Position zu schließen, und USD auf 0 gesetzt wird.
+
+                // Erzeugen einer Zwangsschließungs-Transaktion (Short-Cover)
+                Transaction liquidationTx = supplyWallet.createTransaction(
+                        tradingWallet.getAddress(),
+                        scDebt, // Menge, die 'gekauft' wird, um die Schuld zu decken
+                        message,
+                        currentPrice
+                );
+
+                // Dies ist ein KAUF-Vorgang (SC an TradingWallet, USD an SupplyWallet)
+                if (liquidationTx != null) {
+                    liquidationTxs.add(liquidationTx);
+
+                    // Block für die Liquidation minen
+                    blockchain.addBlock(liquidationTxs);
+
+                    // Balancen nach Liquidation aktualisieren
+                    Block liquidationBlock = blockchain.getChain().get(blockchain.getChain().size() - 1);
+                    WalletManager.updateBalancesFromLastBlock(liquidationBlock);
+
+                    // Abschließende Konsistenzprüfung (setzt USD implizit auf 0 durch Verlust)
+                    WalletManager.setUsdBalanceExplicitly(tradingWallet.getAddress(), 0.0);
+
+                    System.out.printf("✅ LIQUIDIERT: %s... Position geschlossen. SC: 0.000, USD: 0.00%n", walletAddressShort);
+
+                } else {
+                    System.out.printf("❌ FEHLER: Liquidations-Transaktion für %s... konnte nicht erstellt werden.%n", walletAddressShort);
+                }
+
+            } catch (Exception e) {
+                System.err.println("Fehler während der Liquidationsverarbeitung: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
     }
 }

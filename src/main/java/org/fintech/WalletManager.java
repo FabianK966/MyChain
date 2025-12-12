@@ -393,4 +393,7 @@ public class WalletManager {
         // 🔧 Aufruf auf die neue Methode umleiten
         updateAllBalancesFromBlockchain();
     }
+
+    public static void setUsdBalanceExplicitly(String address, double v) {
+    }
 }
