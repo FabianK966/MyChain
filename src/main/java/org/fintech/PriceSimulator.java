@@ -46,12 +46,12 @@ public class PriceSimulator {
 
         // --- NEUE PARAMETER FÜR INVERSE SKALIERUNG ---
         // Dieser Faktor muss sehr viel höher sein, da wir durch den Preis teilen.
-        final double VOLATILITY_FACTOR_NEW = 1000.0; // 💡 Beispielwert, bitte anpassen!
+        final double VOLATILITY_FACTOR_NEW = 0.1; // 💡 Beispielwert, bitte anpassen!
         // ----------------------------------------------
 
         // Maximale erlaubte Preisänderungen
-        final double MAX_PRICE_DROP_PERCENT = 0.05; // Maximaler Drop: 5%
-        final double MAX_PRICE_RISE_PERCENT = 0.05; // Maximaler Anstieg: 5% (Preis verdoppelt sich)
+        final double MAX_PRICE_DROP_PERCENT = 0.01; // Maximaler Drop: 1%
+        final double MAX_PRICE_RISE_PERCENT = 0.02; // Maximaler Anstieg: 2% (Preis verdoppelt sich)
 
         // 🟢 NEUE LOGIK: Preisänderung ist INVERS zum aktuellen Preis.
         double priceChange = (amountSC * VOLATILITY_FACTOR_NEW) / getCurrentPrice();
@@ -101,8 +101,8 @@ public class PriceSimulator {
         currentPrice = potentialNewPrice;
 
         // Sicherstellen, dass der Preis nicht negativ oder extrem niedrig wird
-        if (currentPrice < 0.005) {
-            currentPrice = 0.005;
+        if (currentPrice < 0.5) {
+            currentPrice = 0.5;
             savePrice(currentPrice); // Speichern des Endpreises nach dem Trade
         } else {
             savePrice(currentPrice);

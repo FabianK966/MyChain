@@ -28,7 +28,7 @@ public class Block {
 
         // 🛑 ANPASSUNG: Transaction benötigt jetzt den Preis (angenommen 1.0 für Genesis)
         // Transaction(String sender, String recipient, double amount, String message, double priceAtExecution)
-        Transaction genesisTx = new Transaction("system", "genesis", 1000.0, genesisMessage, 0.01); // 🛑 Preis HINZUGEFÜGT
+        Transaction genesisTx = new Transaction("system", "genesis", 1000.0, genesisMessage, 1.00); // 🛑 Preis HINZUGEFÜGT
 
         this.transactions.add(genesisTx);
         this.previousHash = "0";

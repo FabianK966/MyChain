@@ -162,13 +162,10 @@ public class Wallet {
     public double getLongPositionUsd() { return longPositionUsd; }
     public void setLongPositionUsd(double longPositionUsd) { this.longPositionUsd = longPositionUsd; }
 
-    public double getShortPositionUsd() { return shortPositionUsd; }
-    public void setShortPositionUsd(double shortPositionUsd) { this.shortPositionUsd = shortPositionUsd; }
-
     // GETTER/SETTER für Transaktionshistorie 🌟 NEU
     public List<Transaction> getTransactionHistory() {
         if (transactionHistory == null) {
-            transactionHistory = new ArrayList<>();
+            this.transactionHistory = new ArrayList<>();
         }
         return transactionHistory;
     }
@@ -185,21 +182,9 @@ public class Wallet {
     public void creditUsd(double amount) { this.usdBalance += amount; }
 
     public synchronized void debitUsd(double amount) throws Exception {
-        // Die Short-Position hält USD als Sicherheit gebunden.
-        // Wir prüfen, ob das gesamte USD-Guthaben (usdBalance) MINUS der abzubuchenden Menge
-        // immer noch größer oder gleich der gebundenen Short-Position (shortPositionUsd) ist.
-        // 🛑 KORREKTUR: Die USD-Bilanz muss größer sein als der abzubuchende Betrag.
-        // Wenn die Short-Logik richtig ist, sollte das USD-Guthaben immer die Short-Position abdecken.
-
-        // Die einfache Überprüfung:
         if (usdBalance < amount) {
-            // Hier sollte die Exception ausgelöst werden, die Sie sehen.
-            // Fügen Sie zur besseren Diagnose hier die Details hinzu, falls Sie es testen:
-            // System.err.printf("Wallet %s: %.2f USD soll abgebucht werden, nur %.2f USD verfügbar. (Short: %.2f)%n",
-            //     this.address.substring(0, 10), amount, this.usdBalance, this.shortPositionUsd);
             throw new Exception("USD-Guthaben nicht ausreichend.");
         }
-
         this.usdBalance -= amount;
     }
 
@@ -214,5 +199,45 @@ public class Wallet {
             return null;
         }
         return new Transaction(this, recipient, amount, message, priceAtExecution);
+    }
+
+    // ====================================================================
+    // 🚀 NEUE METHODEN FÜR DYNAMISCHE BEWERTUNG (Mark-to-Market)
+    // ====================================================================
+
+    /**
+     * Berechnet den aktuellen Marktwert der gehaltenen SC-Balance in USD.
+     * @param currentCoinPrice Der aktuelle Preis von 1 SC in USD.
+     * @return Der aktuelle Marktwert der SC-Bestände in USD.
+     */
+    public double getMarketValueScUsd(double currentCoinPrice) {
+        return this.balance * currentCoinPrice;
+    }
+
+    /**
+     * Berechnet das Nettovermögen (Net Worth) dieser Wallet zum aktuellen Marktpreis.
+     * Net Worth = Aktueller SC-Wert + Aktuelle USD-Balance.
+     * (Long/Short-Positionen werden hier nicht als separates Asset betrachtet,
+     * da die SC-Balance bereits den SC-Wert enthält und die Positionen nur die Kostenbasis/Sicherheit sind).
+     * @param currentCoinPrice Der aktuelle Preis von 1 SC in USD.
+     * @return Das Gesamte Nettovermögen.
+     */
+    public double calculateNetWorth(double currentCoinPrice) {
+        // SC-Bestände zum aktuellen Preis bewerten (Long-Asset)
+        double scMarketValue = getMarketValueScUsd(currentCoinPrice);
+
+        // Füge die USD-Balance hinzu (Fiat-Asset)
+        return scMarketValue + this.usdBalance;
+    }
+
+    /**
+     * Hilfsmethode zur Berechnung des aktuellen Net Worth für den Comparator.
+     * Muss static sein und den Preis über einen Lambda-Ausdruck erhalten.
+     * @param w Die zu vergleichende Wallet.
+     * @param currentCoinPrice Der aktuelle Preis.
+     * @return Der berechnete Net Worth.
+     */
+    public static double getNetWorthForSorting(Wallet w, double currentCoinPrice) {
+        return w.calculateNetWorth(currentCoinPrice);
     }
 }

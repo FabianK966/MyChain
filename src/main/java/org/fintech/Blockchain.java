@@ -12,7 +12,7 @@ public class Blockchain {
     private final String name;
 
     // 🛑 WICHTIG: Konstante für den Initialpreis (wird in PriceSimulator und Genesis Block verwendet)
-    private static final double INITIAL_PRICE = 0.01;
+    private static final double INITIAL_PRICE = 1.00;
 
     public int findBlockIndexByTransaction(Transaction targetTx) {
         // Annahme: 'chain' ist die Liste von Blöcken in der Blockchain-Klasse
@@ -44,7 +44,7 @@ public class Blockchain {
             genesisTxs.add(new Transaction(
                     "system",
                     supplyWallet.getAddress(),
-                    1000000000000.0,
+                    10000000000.0,
                     "Genesis Supply – Ursprung der " + name + " Coins!",
                     INITIAL_PRICE // 🛑 Initialpreis wird übergeben
             ));
